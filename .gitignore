@@ -1,0 +1,45 @@
+# Unity project folders (the _unitybuild project keeps only Assets, ProjectSettings, Packages/manifest.json)
+[Ll]ibrary/
+[Tt]emp/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Oo]bj/
+[Bb]in/
+[Bb]uild[Ss]/
+AssetBundles/
+_unitybuild/Packages/packages-lock.json
+_unitybuild/Assets/Plugins/
+_unitybuild/Assets/Editor/RecipeProbe.cs
+*.csproj
+*.sln
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# build intermediates (dist/MaterialStudio/ is the shipped payload and stays tracked)
+build/toolset_check.rsp
+build/*.dll
+*.log
+__pycache__/
+*.pyc
+release/
+*.zip
+
+# editor and OS junk
+*.bak
+*.tmp
+*.swp
+*~
+.vs/
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store
