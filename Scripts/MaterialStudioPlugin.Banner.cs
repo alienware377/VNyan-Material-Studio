@@ -105,7 +105,7 @@ namespace MaterialStudio
                 if (parts.Count >= 3) break;
             }
             if (missingVariant.Count > parts.Count) parts.Add("+" + (missingVariant.Count - parts.Count) + " more");
-            return string.Join("   |   ", parts.ToArray()) + "   -  keeps the current look until it is ready";
+            return string.Join("   |   ", parts.ToArray()) + "   (keeps the current look until it is ready)";
         }
 
         void TickBanner()

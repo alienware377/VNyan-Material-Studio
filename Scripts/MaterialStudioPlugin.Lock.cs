@@ -86,7 +86,7 @@ namespace MaterialStudio
             var lockNames = new List<string>();
             foreach (MatEntry e in entries) { if (lockNames.Count < 4) lockNames.Add(e.mat.name); }
             SetJob("Locking " + entries.Count + " Poiyomi material(s)",
-                   string.Join(", ", lockNames.ToArray()) + (entries.Count > lockNames.Count ? " +" + (entries.Count - lockNames.Count) + " more" : "") + "   -  you can keep editing",
+                   string.Join(", ", lockNames.ToArray()) + (entries.Count > lockNames.Count ? " +" + (entries.Count - lockNames.Count) + " more" : "") + "   (you can keep editing)",
                    "locked and optimised");
             runner.Enqueue(new UnityStep
             {

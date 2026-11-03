@@ -10,7 +10,7 @@ recipe (one colour change) and read the result back.
   python build/headless_test.py verify    load the exported bundle back and check the colour
   python build/headless_test.py lock      lock one Poiyomi material into a bundle
 
-Machine-specific inputs come from environment variables (nothing personal is hard-coded):
+Machine-specific inputs come from environment variables:
   MS_SEED_PROJECT   your VSF SDK Unity project (seed copies its ProjectSettings, Packages and SDK folders)
   MS_TEST_AVATAR    a .vsfavatar to test with (seed copies it into the test folder)
   MS_REAL_JOB       export_real only: an export job folder the plugin wrote (job.json + live.vbx)

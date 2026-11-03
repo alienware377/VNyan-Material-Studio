@@ -147,13 +147,13 @@ if (-not $Target) {
             if ([int]::TryParse($a, [ref]$n) -and $n -ge 1 -and $n -le $found.Count) { $Target = $found[$n - 1] }
         }
     } else {
-        Write-Host "Couldn't find VNyan by myself - that's okay."
+        Write-Host "Couldn't find VNyan automatically."
     }
 
     if (-not $Target) {
         if ($Yes) { Write-Host "ERROR: no VNyan folder found. Run again with -Target <your VNyan folder>." -ForegroundColor Red; exit 1 }
         Write-Host ""
-        Write-Host "Please open your VNyan folder - the one with VNyan.exe inside it."
+        Write-Host "Please open your VNyan folder (the one with VNyan.exe inside it)."
         Add-Type -AssemblyName System.Windows.Forms | Out-Null
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
         $dlg.Description = "Open your VNyan folder (the one with VNyan.exe inside it)"
@@ -173,7 +173,7 @@ $resolved = Resolve-VNyanFolder $Target
 if ($resolved) { $Target = $resolved }
 else {
     Write-Host ""
-    Write-Host "Hmm, there's no VNyan.exe in '$Target'." -ForegroundColor Yellow
+    Write-Host "There's no VNyan.exe in '$Target'." -ForegroundColor Yellow
     if (-not (Ask "Install there anyway? [y/N]" $false)) { Write-Host "Cancelled."; Stop-Here 1 }
 }
 $assemblies = Join-Path $Target "Items\Assemblies"
@@ -181,7 +181,7 @@ $assemblies = Join-Path $Target "Items\Assemblies"
 # ---- VNyan locks plugin files while it's open ----
 while (Get-Process -Name "VNyan" -ErrorAction SilentlyContinue) {
     Write-Host ""
-    Write-Host "VNyan is open - it locks its plugin files. Please close it first." -ForegroundColor Yellow
+    Write-Host "VNyan is open and locks its plugin files. Please close it first." -ForegroundColor Yellow
     if ($Yes) { exit 1 }
     Read-Host "Press Enter once VNyan is closed" | Out-Null
 }
@@ -204,7 +204,7 @@ if (-not $writable) {
         Stop-Here 1
     }
     Write-Host ""
-    Write-Host "Your VNyan folder is write-protected - asking Windows for admin rights..." -ForegroundColor Yellow
+    Write-Host "Your VNyan folder is write-protected. Asking Windows for admin rights..." -ForegroundColor Yellow
     # Admin windows can't always see the drive this was unzipped on (mapped, network or cloud
     # drives), so hand them a copy in a folder every account can read.
     $stage = Join-Path $env:ProgramData ("MaterialStudioInstall_" + [Guid]::NewGuid().ToString("N").Substring(0, 8))
