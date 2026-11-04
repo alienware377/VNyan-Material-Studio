@@ -38,8 +38,8 @@ namespace MaterialStudio
         public bool relockPoiyomi = true;
         public bool applyLiveWeights = true;
         public bool loadAfterExport;
-        public List<NamedString> avatarPaths = new List<NamedString>();
-        public bool autoBuildVariants = true;   // file name -> full path the user picked
+        public List<NamedString> avatarPaths = new List<NamedString>();   // avatar file name to its last known full path
+        public bool autoBuildVariants = true;   // compile missing shader feature combinations in the background
         public bool enabled = true;             // the title-bar On switch (off = shipped materials, nothing saved)
     }
 

@@ -578,7 +578,7 @@ namespace MaterialStudio
             return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         }
 
-        /// <summary>VNyan only tells us the avatar's FILE NAME; remember where the user found it.</summary>
+        /// <summary>VNyan only reports the avatar's file name, so remember its full path once it is known.</summary>
         void RememberAvatarPath(string full)
         {
             string n = Path.GetFileName(full);

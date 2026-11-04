@@ -37,7 +37,7 @@ namespace MaterialStudio
             string head = m.name + (selection.Count > 1 ? "   (+" + (selection.Count - 1) + " more selected)" : "");
             Ui.Label("MatName", P, head, 10, 4, pw - 20, 20, 13, TextAnchor.MiddleLeft, FontStyle.Bold);
             string fam = L != null ? FamilyText(locked ? ShaderFamily.PoiyomiLocked : L.family) : "";
-            Text sh = Ui.Label("ShaderName", P, (m.shader != null ? m.shader.name : "(no shader)") + (fam.Length > 0 ? "   - " + fam : ""), 10, 24, pw - 20, 18, 11);
+            Text sh = Ui.Label("ShaderName", P, (m.shader != null ? m.shader.name : "(no shader)") + (fam.Length > 0 ? "   (" + fam + ")" : ""), 10, 24, pw - 20, 18, 11);
             sh.color = Ui.TextDim;
             float y = 44f;
 
