@@ -24,18 +24,22 @@ namespace MaterialStudio.EditorTools
         public readonly HashSet<string> scripts = new HashSet<string>();
         /// <summary>Those of <see cref="scripts"/> whose class is not in this Unity project.</summary>
         public readonly HashSet<string> deadScripts = new HashSet<string>();
+        /// <summary>Scripts the avatar itself runs (its components and the data they use).</summary>
+        public readonly HashSet<string> usedScripts = new HashSet<string>();
+        /// <summary>The script of each of <see cref="objects"/> that is a data asset, else null.</summary>
+        public readonly List<string> objectScripts = new List<string>();
 
         public static ExportInventory Of(GameObject prefab, AssetBundle bundle)
         {
             var inv = new ExportInventory();
             var seen = new HashSet<UnityEngine.Object>();
-            foreach (UnityEngine.Object o in EditorUtility.CollectDependencies(new UnityEngine.Object[] { prefab })) inv.Add(o, seen);
+            foreach (UnityEngine.Object o in EditorUtility.CollectDependencies(new UnityEngine.Object[] { prefab })) inv.Add(o, seen, true);
             if (bundle != null)
             {
                 // also what nothing references (a bundle may hold assets the prefab does not use)
                 UnityEngine.Object[] all = null;
                 try { all = bundle.LoadAllAssets(); } catch { }
-                if (all != null) foreach (UnityEngine.Object o in all) inv.Add(o, seen);
+                if (all != null) foreach (UnityEngine.Object o in all) inv.Add(o, seen, false);
             }
             foreach (Transform t in prefab.GetComponentsInChildren<Transform>(true))
             {
@@ -54,7 +58,8 @@ namespace MaterialStudio.EditorTools
             return inv;
         }
 
-        void Add(UnityEngine.Object o, HashSet<UnityEngine.Object> seen)
+        /// <param name="used">reached from the avatar itself, not only listed in the file</param>
+        void Add(UnityEngine.Object o, HashSet<UnityEngine.Object> seen, bool used)
         {
             if (o == null || o is GameObject || o is Component || o is AssetBundle || EditorOnly(o) || MSBatch.IsNameHolder(o) || !seen.Add(o)) return;
             var ms = o as MonoScript;
@@ -63,11 +68,31 @@ namespace MaterialStudio.EditorTools
                 Type c = null;
                 try { c = ms.GetClass(); } catch { }
                 scripts.Add(ms.name);
+                if (used) usedScripts.Add(ms.name);
                 if (c == null) deadScripts.Add(ms.name);
                 return;
             }
             objects.Add(o);
             keys.Add(Key(o));
+            // a data asset runs its script too, even one nothing on the avatar uses (VRM
+            // AvatarDescription); that script is expected wherever the asset is
+            string own = null;
+            var so = o as ScriptableObject;
+            if (so != null)
+            {
+                MonoScript s = null;
+                try { s = MonoScript.FromScriptableObject(so); } catch { }
+                if (s != null)
+                {
+                    own = s.name;
+                    scripts.Add(own);
+                    if (used) usedScripts.Add(own);
+                    Type c = null;
+                    try { c = s.GetClass(); } catch { }
+                    if (c == null) deadScripts.Add(own);
+                }
+            }
+            objectScripts.Add(own);
         }
 
         /// <summary>The states, transitions and blend trees of an animator controller exist only in
@@ -134,27 +159,30 @@ namespace MaterialStudio.EditorTools
                                              bool all, List<string> leftOut, List<string> failedCopies)
         {
             var x = new ExportExpectation();
+            x.scripts.UnionWith(src.usedScripts);
             for (int i = 0; i < src.objects.Count; i++)
             {
                 UnityEngine.Object o = src.objects[i];
                 string key = src.keys[i];
                 if (key.StartsWith("Shader 'Hidden/", StringComparison.Ordinal)) continue;
                 UnityEngine.Object c = copyOf(o);
+                bool expected;
                 if (c == null)
                 {
+                    expected = false;
                     if (triedToCopy(o))
                     {
                         if (CannotBeCopied(o)) leftOut.Add(key);
-                        else { failedCopies.Add(key); Count(x.objects, key); }   // reported missing below
+                        else { failedCopies.Add(key); expected = true; }   // reported missing below
                     }
-                    else if (all && !AssetPersist.IsAsset(o)) Count(x.objects, key);   // never copied: reported missing below
-                    continue;
+                    else if (all && !AssetPersist.IsAsset(o)) expected = true;   // never copied: reported missing below
                 }
-                if (!inBundle.Contains(c) && (!all || !AssetPersist.Packable(c))) continue;
+                else expected = inBundle.Contains(c) || (all && AssetPersist.Packable(c));
+                if (!expected) continue;
                 Count(x.objects, key);
+                if (src.objectScripts[i] != null) x.scripts.Add(src.objectScripts[i]);
             }
             foreach (var kv in src.components) x.components[kv.Key] = new Dictionary<string, int>(kv.Value);
-            x.scripts.UnionWith(src.scripts);
             return x;
         }
 

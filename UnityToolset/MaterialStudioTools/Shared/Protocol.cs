@@ -35,7 +35,7 @@ namespace MaterialStudio
         public List<FloatSet> materials = new List<FloatSet>();
     }
 
-    /// <summary>One job for the editor: kind = "catalog", "shaders" or "export".</summary>
+    /// <summary>One job for the editor: kind = "catalog", "shaders", "export" or "setup" (words can be combined).</summary>
     [Serializable]
     public class MSJob
     {
@@ -51,8 +51,16 @@ namespace MaterialStudio
         public string outDir = "";
 
         // export
-        public string sourceKind = "";        // "vsfavatar" or "prefab"
-        public string sourcePath = "";        // .vsfavatar file, or "Assets/....prefab" in the project
+        public string sourceKind = "";        // "vsfavatar", "prefab" or "warudo"
+        public string sourcePath = "";        // .vsfavatar or .warudo file, or "Assets/....prefab" in the project
+        // warudo: the plugin unpacks the mod, so the editor only opens its AssetBundle
+        public string warudoBundlePath = "";  // the mod's sharedassets.bin, unpacked
+        public string modName = "";
+        public string modAuthor = "";
+        public string modVersion = "";
+        public string modUnityVersion = "";
+        public string modCoverPath = "";      // the mod's cover JPEG (VRM thumbnail), optional
+        public bool convertPhysics = true;    // bone physics to DynamicBone, as the Warudo Importer does
         public string recipePath = "";
         public string recipeDir = "";         // where "file:" textures live
         public string liveVbxPath = "";       // live mesh snapshot (weights painted in VNyan), optional

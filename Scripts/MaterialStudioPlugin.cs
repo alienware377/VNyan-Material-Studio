@@ -12,6 +12,8 @@ namespace MaterialStudio
         public string path = "";
         public bool isFolder;
         public string importedStamp = "";     // size+mtime when it went into the workspace
+        public string importedStampWarudo = "";   // the same for the newer-Unity project .warudo exports use
+        public bool warudoOnly;               // only for .warudo exports (a shader that needs a newer Unity)
     }
 
     [Serializable]
@@ -35,6 +37,10 @@ namespace MaterialStudio
         public string exportVsf = "";
         public string exportProject = "";
         public string exportPrefab = "";
+        public string exportWarudo = "";
+        public bool warudoPhysics = true;        // .warudo export: bone physics to DynamicBone, as the Warudo Importer does
+        public string warudoWorkspace = "";      // private project on a newer Unity for .warudo exports
+        public string warudoWorkspaceVersion = "";   // the editor that project was set up with ("" = not ready)
         public bool relockPoiyomi = true;
         public bool applyLiveWeights = true;
         public bool includeUnusedAssets = true;  // export: pack everything the original file had, used or not
@@ -52,7 +58,7 @@ namespace MaterialStudio
     public partial class MaterialStudioPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
         public const string LOG = "[MaterialStudio] ";
-        public const string VERSION = "v1.0.1";
+        public const string VERSION = "v1.1.0";
         // GitHub repo the update check reads
         public const string REPO = "alienware377/VNyan-Material-Studio";
         const string BUTTON = "Material Studio";
@@ -260,6 +266,13 @@ namespace MaterialStudio
             // the export source follows the avatar on screen (VNyan may only give a file name)
             string full = ResolveAvatarFile(sourcePath);
             if (full.Length > 0) { cfg.exportVsf = full; RememberAvatarPath(full); }
+            // a mod the Warudo Importer loaded exports from its .warudo file
+            string mod = WarudoFileFor(sourcePath);
+            string kindBefore = cfg.exportSourceKind, modBefore = cfg.exportWarudo;
+            if (mod.Length > 0) { cfg.exportWarudo = mod; cfg.exportSourceKind = "warudo"; }
+            else if (cfg.exportSourceKind == "warudo" && full.Length > 0) cfg.exportSourceKind = "vsfavatar";
+            // a file name typed for the other avatar must not overwrite that avatar's export
+            if (cfg.exportSourceKind != kindBefore || !string.Equals(cfg.exportWarudo, modBefore, StringComparison.OrdinalIgnoreCase)) cfg.exportName = "";
 
             recipe = LoadRecipe();
             int applied = 0;
@@ -879,6 +892,7 @@ namespace MaterialStudio
             if (cfg.wantedShaders == null) cfg.wantedShaders = new List<string>();
             if (cfg.avatarPaths == null) cfg.avatarPaths = new List<NamedString>();
             if (string.IsNullOrEmpty(cfg.workspace)) cfg.workspace = UnityDriver.DefaultWorkspace;
+            if (string.IsNullOrEmpty(cfg.warudoWorkspace)) cfg.warudoWorkspace = Path.Combine(ShaderCatalog.Dir, "WorkspaceWarudo");
         }
 
         void SaveConfig()

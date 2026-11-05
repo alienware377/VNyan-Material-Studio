@@ -1,7 +1,8 @@
 """Builds Material Studio end to end and stages dist/.
 
   1. compile MaterialStudio.dll (Unity's Roslyn, against VNyan's own managed DLLs)
-  2. compile-check the Unity editor toolset against Unity 2019.4.31f1 (VSF SDK editor)
+  2. compile-check the Unity editor toolset against Unity 2019.4.31f1 (VSF SDK editor) and
+     2022.3.22f1 (the newer editor .warudo exports use)
   3. build MaterialStudio.vnobj with Unity 2022.3.22f1 in batch mode
   4. stage dist/MaterialStudio/: DLL, .vnobj, UnityToolset/ (editor scripts the plugin copies
      into Unity projects). make_release_zip.py packs that folder with the installer.
@@ -55,10 +56,50 @@ def sync_shared():
             shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
 
 
+WARUDO_SRC = os.path.join(os.path.dirname(HERE), "VNyanWarudoImporter", "Scripts")
+WARUDO_FILES = ["WarudoBundle.cs", "ModRestore.cs", "AvatarPrep.cs", "HumanoidMapper.cs",
+                "BlendShapeMapper.cs", "VrmReflect.cs", "DynamicBoneConvert.cs", "PhysBonesGen.cs"]
+
+
+def sync_warudo():
+    """The .warudo export source reuses the Warudo Importer's loader (bundle, uMod data,
+    humanoid and VRM setup). Its files are copied in under their own namespace so they never
+    clash with an installed Warudo Importer converter in the same Unity project. The container
+    reader goes into the plugin instead: it needs System.IO.Compression, which not every Unity
+    project's API level references, and one compile error would stop every export."""
+    if not os.path.isdir(WARUDO_SRC):
+        print("   Warudo Importer sources not found; keeping the copies already here")
+        return
+    dst = os.path.join(HERE, "UnityToolset", "MaterialStudioTools", "Editor", "Warudo")
+    files = [(os.path.join(WARUDO_SRC, f), os.path.join(dst, f)) for f in WARUDO_FILES]
+    files.append((os.path.join(WARUDO_SRC, "WarudoContainer.cs"), os.path.join(HERE, "Scripts", "Warudo", "WarudoContainer.cs")))
+    # data-only stand-ins for VRChat's PhysBone classes: with them the .warudo project can read a
+    # mod's PhysBone settings and turn them into DynamicBone (they keep their VRC namespaces)
+    stubs = os.path.join(os.path.dirname(WARUDO_SRC), "vrcstubs")
+    tool = os.path.join(HERE, "UnityToolset", "VRCStubs")
+    for f, asm in (("VRCDynamicsStubs.cs", "VRC.Dynamics"), ("VRCPhysBoneComponents.cs", "VRC.SDK3.Dynamics.PhysBone")):
+        with open(os.path.join(stubs, f), encoding="utf-8-sig") as fh:
+            s = fh.read()
+        with open(os.path.join(tool, asm, f), "w", encoding="utf-8", newline="") as fh:
+            fh.write("// Copied from the VNyan Warudo Importer by build.py; edit it there.\n" + s)
+    ser = os.path.join(WARUDO_SRC, "Serialized")
+    files += [(os.path.join(ser, f), os.path.join(dst, "Serialized", f)) for f in sorted(os.listdir(ser)) if f.endswith(".cs")]
+    for src, out in files:
+        with open(src, encoding="utf-8-sig") as fh:
+            s = fh.read()
+        s = s.replace("namespace WarudoImporter", "namespace MaterialStudio.Warudo")
+        s = s.replace("using WarudoImporter", "using MaterialStudio.Warudo")
+        s = "// Copied from the VNyan Warudo Importer by build.py; edit it there.\n" + s
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w", encoding="utf-8", newline="") as fh:
+            fh.write(s)
+
+
 def main():
     dll_only = "--dll" in sys.argv
     os.makedirs(STAGE, exist_ok=True)
     sync_shared()
+    sync_warudo()
 
     print("[1] compiling MaterialStudio.dll")
     dll = os.path.join(STAGE, "MaterialStudio.dll")
@@ -66,9 +107,10 @@ def main():
         os.remove(dll)
     run([CSC, "-noconfig", "@build\\build.rsp", "-out:" + dll], cwd=HERE)
 
-    print("[2] compile-checking the editor toolset against Unity 2019.4")
+    print("[2] compile-checking the editor toolset against Unity 2019.4 and 2022.3")
     run([sys.executable, os.path.join(HERE, "build", "make_toolset_rsp.py")])
     run([CSC, "-noconfig", "@build\\toolset_check.rsp"], cwd=HERE)
+    run([CSC, "-noconfig", "@build\\toolset_check_2022.rsp"], cwd=HERE)
 
     vnobj = None
     if not dll_only:
@@ -109,6 +151,12 @@ def main():
     if os.path.exists(tdst):
         shutil.rmtree(tdst)
     shutil.copytree(os.path.join(HERE, "UnityToolset", "MaterialStudioTools"), tdst)
+    # UniVRM 0.66 (MIT), imported into the .warudo export project when no VSF SDK project has it
+    for extra in ("UniVRM", "VRCStubs"):
+        vdst = os.path.join(pay, "UnityToolset", extra)
+        if os.path.exists(vdst):
+            shutil.rmtree(vdst)
+        shutil.copytree(os.path.join(HERE, "UnityToolset", extra), vdst)
     for f in sorted(os.listdir(pay)):
         p = os.path.join(pay, f)
         if os.path.isfile(p):

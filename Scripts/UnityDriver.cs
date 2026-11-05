@@ -196,6 +196,42 @@ namespace MaterialStudio
             catch (Exception e) { notes.Add("Could not copy the toolset into " + project + ": " + e.Message); return false; }
         }
 
+        /// <summary>
+        /// A project made with -createProject has no UI, TextMeshPro or test framework packages,
+        /// and UniVRM and the VSF SDK need them to compile. Adds the versions that come inside
+        /// the editor itself, so nothing has to be downloaded.
+        /// </summary>
+        public static bool AddEditorPackages(string project, string exe, List<string> notes)
+        {
+            string man = Path.Combine(project, Path.Combine("Packages", "manifest.json"));
+            if (!File.Exists(man)) { notes.Add("The new project has no Packages/manifest.json."); return false; }
+            var want = new List<string> { "\"com.unity.ugui\": \"1.0.0\"" };
+            string shipped = Path.Combine(Path.GetDirectoryName(exe), Path.Combine("Data", Path.Combine("Resources", Path.Combine("PackageManager", "Editor"))));
+            foreach (string id in new[] { "com.unity.test-framework", "com.unity.textmeshpro" })
+            {
+                string[] tgz = Directory.Exists(shipped) ? Directory.GetFiles(shipped, id + "-*.tgz") : new string[0];
+                if (tgz.Length == 0) { notes.Add("Unity " + EditorVersion(exe) + " has no " + id + " inside; leaving it out."); continue; }
+                string v = Path.GetFileNameWithoutExtension(tgz[tgz.Length - 1]).Substring(id.Length + 1);
+                want.Add("\"" + id + "\": \"" + v + "\"");
+            }
+            string s = File.ReadAllText(man);
+            int at = s.IndexOf("\"dependencies\"", StringComparison.Ordinal);
+            int open = at >= 0 ? s.IndexOf('{', at) : -1;
+            if (open < 0) { notes.Add("Could not read the new project's package list."); return false; }
+            var add = new List<string>();
+            foreach (string w in want)
+                if (s.IndexOf(w.Substring(0, w.IndexOf(':')), StringComparison.Ordinal) < 0) add.Add(w);
+            if (add.Count == 0) return true;
+            // the list may be empty ({ }): no comma after the last one added then
+            bool empty = s.Substring(open + 1).TrimStart().StartsWith("}", StringComparison.Ordinal);
+            string block = "\n    " + string.Join(",\n    ", add.ToArray()) + (empty ? "\n  " : ",");
+            File.WriteAllText(man, s.Substring(0, open + 1) + block + s.Substring(open + 1));
+            var names = new List<string>();
+            foreach (string w in add) names.Add(w.Substring(1, w.IndexOf('"', 1) - 1));
+            notes.Add("Added " + string.Join(", ", names.ToArray()) + " (they come with Unity " + EditorVersion(exe) + ").");
+            return true;
+        }
+
         /// <summary>A small top-level Assets folder list for the seed checklist.</summary>
         public static List<string> AssetFolders(string project)
         {
@@ -239,6 +275,7 @@ namespace MaterialStudio
         public bool workOk;
         public readonly List<string> workNotes = new List<string>();
 
+        public bool retried;               // ran once more after Unity quit without doing the job
         public Process process;
         public DateTime started;
         public int exitCode = -1;
@@ -253,6 +290,26 @@ namespace MaterialStudio
             if (!string.IsNullOrEmpty(extraArgs)) sb.Append(' ').Append(extraArgs);
             sb.Append(" -logFile \"").Append(logPath).Append('"');
             return sb.ToString();
+        }
+
+        /// <summary>True when an error line of the Unity log contains <paramref name="word"/>.</summary>
+        public bool LogMentions(string word)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(logPath) || !File.Exists(logPath)) return false;
+                using (var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs))
+                {
+                    string line;
+                    while ((line = sr.ReadLine()) != null)
+                        if (line.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0 &&
+                            (line.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0 || line.IndexOf("no valid", StringComparison.OrdinalIgnoreCase) >= 0))
+                            return true;
+                }
+            }
+            catch { }
+            return false;
         }
 
         public string Tail(int lines)
@@ -285,7 +342,9 @@ namespace MaterialStudio
         public UnityStep current;
         public readonly List<string> log = new List<string>();
         public string status = "idle";
-        public bool Busy { get { return current != null || queue.Count > 0; } }
+        // a file-copy step cancelled half way still runs on its worker thread until it is done
+        UnityStep draining;
+        public bool Busy { get { return current != null || queue.Count > 0 || (draining != null && !draining.workDone); } }
         public Action onFinishedAll;
 
         public void Enqueue(UnityStep s) { queue.Enqueue(s); }
@@ -297,6 +356,7 @@ namespace MaterialStudio
             {
                 try { current.process.Kill(); } catch { }
             }
+            if (current != null && current.work != null && !current.workDone) draining = current;
             Log("Cancelled.");
             current = null;
             status = "cancelled";
@@ -311,6 +371,11 @@ namespace MaterialStudio
 
         public void Tick()
         {
+            if (draining != null)
+            {
+                if (!draining.workDone) return;
+                draining = null;
+            }
             if (current == null)
             {
                 if (queue.Count == 0) return;
@@ -378,7 +443,21 @@ namespace MaterialStudio
             {
                 try { s.result = JsonIO.FromJson<MSResult>(File.ReadAllText(s.resultPath)); } catch { }
             }
-            bool ok = ran && (s.result != null ? s.result.ok : s.exitCode == 0);
+            bool expectsResult = !string.IsNullOrEmpty(s.resultPath);
+            // On a project's first start Unity can finish importing and quit without running
+            // the job at all (exit 0, no result). Running it again then works.
+            if (ran && expectsResult && s.result == null && s.exitCode == 0 && !s.retried)
+            {
+                s.retried = true;
+                s.process = null;
+                Log(s.title + ": Unity was still setting the project up and quit early; running it again.");
+                var rest = new List<UnityStep>(queue);
+                queue.Clear();
+                queue.Enqueue(s);
+                foreach (UnityStep r in rest) queue.Enqueue(r);
+                return;
+            }
+            bool ok = ran && (s.result != null ? s.result.ok : !expectsResult && s.exitCode == 0);
             if (s.result != null)
             {
                 foreach (string n in s.result.notes) Log("  " + n);
@@ -389,6 +468,7 @@ namespace MaterialStudio
                 Log(s.title + " FAILED (exit " + s.exitCode + "). Unity log: " + s.logPath);
                 string tail = s.Tail(8);
                 if (tail.Length > 0) Log(tail);
+                if (s.LogMentions("license")) Log("Unity could not find its licence. Open Unity Hub once and sign in (the free Personal licence is enough), then try again.");
                 queue.Clear();     // later steps depend on this one
                 status = "failed: " + s.title;
             }

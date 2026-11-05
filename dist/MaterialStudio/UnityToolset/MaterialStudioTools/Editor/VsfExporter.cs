@@ -11,7 +11,7 @@ namespace MaterialStudio.EditorTools
 {
     /// <summary>
     /// Builds a .vsfavatar with the VNyan edits baked in:
-    ///   1. stage the avatar (from a .vsfavatar file, or from a prefab in its own project),
+    ///   1. stage the avatar (from a .vsfavatar or .warudo file, or from a prefab in its own project),
     ///   2. copy everything it uses into project assets (never touching the project's own),
     ///   3. rebind locked Poiyomi to its full shader,
     ///   4. apply live bone weights captured in VNyan (only meshes that really differ),
@@ -21,7 +21,7 @@ namespace MaterialStudio.EditorTools
     ///   8. open the new file and check it against the original (names, components, scripts,
     ///      locks) before it replaces anything at the output path.
     /// </summary>
-    public static class VsfExporter
+    public static partial class VsfExporter
     {
         public static void Export(MSJob job, MSResult res)
         {
@@ -67,6 +67,11 @@ namespace MaterialStudio.EditorTools
                     }
                     res.notes.Add("Staged prefab " + job.sourcePath + " (" + matCopies.Count + " material copies).");
                 }
+                else if (job.sourceKind == "warudo")
+                {
+                    bundle = StageWarudo(job, res, out source, out inst, out lockedSlots);
+                    persist = PersistSource(inst, source, job, workDir, res.notes);
+                }
                 else
                 {
                     AssetBundle.UnloadAllAssetBundles(true);
@@ -91,12 +96,7 @@ namespace MaterialStudio.EditorTools
                     if (unlinked > 0) throw new Exception(unlinked + " component(s) have no script file in the Unity project, so they would come out missing. Seed the project with the folders those scripts live in.");
                     if (dead > 0)
                         throw new Exception(dead + " component(s) use scripts that are not in the Unity project, so they would come out missing (the log says where). Seed the project with the folders those scripts live in.");
-                    persist = new AssetPersist(workDir, res.notes) { avatarRoot = inst, keepAllMaterialTextures = job.includeUnusedAssets };
-                    persist.PersistAll(inst);
-                    if (persist.missingShaders.Count > 0)
-                        throw new Exception("These shaders are not in the Unity project: " + string.Join(", ", persist.missingShaders.ToArray()) +
-                            ". Add their .unitypackage on the Packages tab (it is imported on the next export), or the avatar would render pink.");
-                    if (job.includeUnusedAssets) persist.PersistEverything(source.objects);
+                    persist = PersistSource(inst, source, job, workDir, res.notes);
                 }
 
                 // ---- 3. locked Poiyomi (prefab mode: materials are project assets, the lock is Thry's job)
@@ -162,8 +162,22 @@ namespace MaterialStudio.EditorTools
                 if (hollow != null) throw new Exception("Some parts are still not project assets, so the export would come out empty: " + hollow);
                 string dangling = FindUnsavedScripts(inst);
                 if (dangling != null) throw new Exception("Some components would lose their script in the export: " + dangling);
-                string err = CheckAvatar(inst);
-                if (err != null) throw new Exception("VSF SDK avatar check failed: " + err);
+                // a Warudo mod never had VSF SDK parts and the file is for VNyan, so the SDK's
+                // check is only a hint there
+                if (job.sourceKind == "warudo")
+                {
+                    if (FindType("VSeeFace.AvatarCheck") == null) res.notes.Add("The VSF SDK is not in this Unity project, so its avatar check was skipped.");
+                    else
+                    {
+                        string err = CheckAvatar(inst);
+                        if (err != null) res.notes.Add("The VSF SDK's avatar check says: " + err + " (VNyan may still load it; VSeeFace cannot open this file anyway).");
+                    }
+                }
+                else
+                {
+                    string err = CheckAvatar(inst);
+                    if (err != null) throw new Exception("VSF SDK avatar check failed: " + err);
+                }
                 // a part whose copy failed would be missing from the file: stop before building it
                 if (persist != null)
                 {
@@ -171,8 +185,7 @@ namespace MaterialStudio.EditorTools
                     for (int i = 0; i < source.objects.Count; i++)
                     {
                         UnityEngine.Object o = source.objects[i];
-                        UnityEngine.Object c;
-                        if (source.keys[i].StartsWith("Shader 'Hidden/", StringComparison.Ordinal) || !persist.map.TryGetValue(o, out c) || c != null) continue;
+                        if (source.keys[i].StartsWith("Shader 'Hidden/", StringComparison.Ordinal) || !persist.map.ContainsKey(o) || persist.CopyOf(o) != null) continue;
                         if (!ExportExpectation.CannotBeCopied(o)) failedCopies.Add(source.keys[i]);
                     }
                     if (failedCopies.Count > 0)
@@ -196,8 +209,7 @@ namespace MaterialStudio.EditorTools
                     delegate (UnityEngine.Object o)
                     {
                         if (p == null) { Material mc; return o is Material && matCopies.TryGetValue((Material)o, out mc) ? mc : o; }
-                        UnityEngine.Object c;
-                        return p.map.TryGetValue(o, out c) ? c : null;
+                        return p.CopyOf(o);
                     },
                     delegate (UnityEngine.Object o) { return p != null && p.map.ContainsKey(o); },
                     inBundle, p != null && job.includeUnusedAssets, leftOut, lostCopies);
@@ -206,7 +218,8 @@ namespace MaterialStudio.EditorTools
                 // checked before the build already; anything here is reported missing by the output check
                 foreach (string l in lostCopies) res.notes.Add("Could not copy " + l + ".");
                 if (leftOut.Count > 0)
-                    res.notes.Add("WARNING: these kinds of objects (animator controllers, audio, fonts, 3D and array textures) cannot be copied out of a .vsfavatar, so they are not in the export: " +
+                    res.notes.Add("WARNING: these kinds of objects (animator controllers, audio, fonts, 3D and array textures) cannot be copied out of a " +
+                                  (job.sourceKind == "warudo" ? ".warudo" : ".vsfavatar") + " file, so they are not in the export: " +
                                   string.Join(", ", leftOut.ToArray()) + ". Export from the avatar's Unity project to keep them.");
 
                 // close the source first: a same-named output gets the same internal bundle name
@@ -244,6 +257,18 @@ namespace MaterialStudio.EditorTools
                 else if (!res.ok) res.notes.Add("Intermediate assets kept for inspection in " + workDir + ".");
                 AssetDatabase.SaveAssets();
             }
+        }
+
+        /// <summary>Copies everything a bundle-loaded avatar uses into project assets under <paramref name="workDir"/>.</summary>
+        static AssetPersist PersistSource(GameObject inst, ExportInventory source, MSJob job, string workDir, List<string> notes)
+        {
+            var persist = new AssetPersist(workDir, notes) { avatarRoot = inst, keepAllMaterialTextures = job.includeUnusedAssets };
+            persist.PersistAll(inst);
+            if (persist.missingShaders.Count > 0)
+                throw new Exception("These shaders are not in the Unity project: " + string.Join(", ", persist.missingShaders.ToArray()) +
+                    ". Add their .unitypackage on the Packages tab (it is imported on the next export), or the avatar would render pink.");
+            if (job.includeUnusedAssets) persist.PersistEverything(source.objects);
+            return persist;
         }
 
         /// <summary>Lists meshes/materials that would be left behind by the bundle build, or null.</summary>
@@ -513,7 +538,8 @@ namespace MaterialStudio.EditorTools
             }
             var toLock = new List<Material>();
             foreach (Material m in mats) if (!why.ContainsKey(m)) toLock.Add(m);
-            Type opt = FindType("Thry.ShaderOptimizer");
+            // Poiyomi 9 moved it into Thry.ThryEditor
+            Type opt = FindType("Thry.ShaderOptimizer") ?? FindType("Thry.ThryEditor.ShaderOptimizer");
             MethodInfo lockAll = null;
             if (opt != null)
                 foreach (MethodInfo mi in opt.GetMethods(BindingFlags.Public | BindingFlags.Static))

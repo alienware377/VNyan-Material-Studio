@@ -7,7 +7,8 @@ Material Studio lists every material on the avatar you have loaded and gives eac
 inspector that is built from the shader itself, so it is not limited to a few known shaders.
 Changes show on the model straight away, are saved for that model file, and come back every
 time the model loads. When you are happy, export a new `.vsfavatar` with everything baked in;
-VNyan and VSeeFace both load it.
+VNyan and VSeeFace both load it. Warudo character mods (`.warudo`) can be exported to a
+`.vsfavatar` too.
 
 ## Features
 
@@ -47,6 +48,10 @@ VNyan and VSeeFace both load it.
   VNyan shows them, so weights painted with Weight Studio (more than 4 per vertex included)
   come along. The new file is opened again and checked against the original before it
   replaces anything. It does not need any other plugin.
+- **Export from a Warudo mod.** Pick a `.warudo` file and get a `.vsfavatar` with your edits:
+  the mod's own components and physics are rebuilt, and it gets the humanoid and VRM setup
+  the way the [Warudo Importer](https://github.com/alienware377/VNyan-Warudo-Importer) does
+  it in VNyan. A mod loaded with the Warudo Importer is picked up by itself.
 - **Progress banner** under the window for every background job: what is running, for which
   materials, how long it has taken, and the result.
 
@@ -62,10 +67,19 @@ VNyan and VSeeFace both load it.
     changes it: on the *Packages* tab it copies the SDK parts it needs (VSF SDK, UniVRM,
     DynamicBone, your shader folders) into its own private Unity project. You can tell it to
     use your project directly instead, if you prefer.
+- **Exporting from a `.warudo` file** needs a newer Unity, because Warudo mods are made with
+  Unity 2021.3 or later and Unity can only open files from its own version or an older one.
+  Any installed Unity from the mod's version up to VNyan's own (2022.3) works. If none is
+  installed, the *Export* tab has a button that opens Unity Hub's install window for VNyan's
+  version. Unity itself cannot come with the plugin (its licence does not allow passing it
+  on), but it is free: sign in to Unity Hub once for the Personal licence. Material Studio
+  sets up a second private project for these exports by itself, from your VSF SDK project if
+  you have one, otherwise from the UniVRM package that comes with the plugin. The result
+  loads in VNyan; VSeeFace's older Unity cannot open it.
 
 ## Install
 
-1. Download **`VNyan-Material-Studio-v1.0.1.zip`** from
+1. Download **`VNyan-Material-Studio-v1.1.0.zip`** from
    [Releases](https://github.com/alienware377/VNyan-Material-Studio/releases) and unzip it.
 2. Close VNyan.
 3. Run **`install.bat`**. It looks for your VNyan folder by itself (a running VNyan, VNyan's own
@@ -88,7 +102,7 @@ materials; click a material (or use **Pick on model**) and edit it on the tabs:
 | **Properties** | Every property of the picked material, grouped like the shader's own inspector, with per-section on/off ticks and Copy/Paste. Locked Poiyomi shows *Unlock for editing*; unlocked Poiyomi shows *Lock & optimise*. |
 | **Shader** | Switch the selected materials to another shader: the avatar's own, ones built from your packages, Unity built-ins, or VRM/MToon. |
 | **Packages** | Pick your VSF SDK project, add shader `.unitypackage`s (or shader folders), tick the shaders you want, press **Build shader bundle**. Unity runs in the background; VNyan stays usable. |
-| **Export** | Build a new `.vsfavatar` with your edits applied, from this avatar's file or from its prefab in its Unity project. Options: include Weight Studio's live weight paint, keep Poiyomi locked where it is locked now, include unused assets from the original file (on by default), and load the new avatar in VNyan when done. |
+| **Export** | Build a new `.vsfavatar` with your edits applied, from this avatar's file, from its prefab in its Unity project, or from a `.warudo` mod. Options: include Weight Studio's live weight paint, keep Poiyomi locked where it is locked now, include unused assets from the original file (on by default), and load the new avatar in VNyan when done. |
 | **Settings** | Apply saved edits on load, save automatically, compile missing shader features automatically, show hidden properties, Unity editor override, the saved-edits folder, Reset ALL materials, and the message log. |
 
 ### Locked Poiyomi
@@ -123,7 +137,8 @@ model plus a folder for textures you loaded from files. *Settings > Open folder*
     (Material Studio)...*, which applies the saved edits (to copies of the materials) before
     you export with the VSF SDK.
   - [Warudo Importer](https://github.com/alienware377/VNyan-Warudo-Importer): its
-    `.vsfavatar` export applies the saved edits when Material Studio is installed.
+    `.vsfavatar` export applies the saved edits when Material Studio is installed. Material
+    Studio's own *From a .warudo file* export uses the same loading steps, so either works.
 
 ### Limits
 
@@ -134,6 +149,10 @@ model plus a folder for textures you loaded from files. *Settings > Open folder*
   a bundle and are left out with a warning; export from the avatar's prefab in its Unity
   project to keep them. If some components use scripts that are not in the private project,
   the export stops and says which; add those folders to the project.
+- Exporting from a `.warudo` file: the mod's bone physics become DynamicBone (as in Warudo)
+  only when your VSF SDK project has DynamicBone; the mod's own VRM spring bones work either
+  way. Magica Cloth needs Magica Cloth 2 in the project. Shaders the mod uses must be in the
+  project, the same as for a `.vsfavatar`; add their package on the *Packages* tab.
 - Textures inside a `.vsfavatar` can only be read back from the GPU, so they come out at the
   quality the avatar shipped with: any detail lost to its texture compression stays lost.
 - Live weights are matched by vertex count and bone names; a mesh whose shape changed is left
@@ -148,7 +167,9 @@ page so you can download the new zip and run `install.bat` again. Your saved edi
 ## Build from source
 
 `python build.py` compiles `MaterialStudio.dll` against VNyan's own managed DLLs (Unity's
-Roslyn compiler), compile-checks the Unity editor scripts against Unity 2019.4.31f1, builds
+Roslyn compiler), compile-checks the Unity editor scripts against Unity 2019.4.31f1 and
+2022.3.22f1, copies the loading code it shares with the Warudo Importer from a checkout of that
+repository next to this one (when there is one), builds
 `MaterialStudio.vnobj` with Unity 2022.3.22f1 in batch mode, and stages
 `dist/MaterialStudio/`. `python build.py --dll` skips the bundle step. The tool paths at the
 top of `build.py` and the references in `build/build.rsp` point at the build machine's Unity
@@ -160,4 +181,5 @@ without VNyan (see the notes at its top for the environment variables it needs).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). `UnityToolset/UniVRM` holds the unchanged UniVRM 0.66.0 package
+by the VRM Consortium, under its own MIT licences (included next to it).

@@ -308,15 +308,33 @@ namespace MaterialStudio.EditorTools
             return n;
         }
 
+        /// <summary>
+        /// The saved copy of a source object, or null when it could not be copied. Unity unloads
+        /// saved assets nothing in the scene uses (the lock and the build both clean up), which
+        /// leaves the reference here dead; the copy is still on disk, so it is loaded again.
+        /// </summary>
+        public UnityEngine.Object CopyOf(UnityEngine.Object src)
+        {
+            UnityEngine.Object c;
+            if (!map.TryGetValue(src, out c)) return null;
+            if (c == null && !ReferenceEquals(c, null))
+            {
+                c = EditorUtility.InstanceIDToObject(c.GetInstanceID());
+                if (c != null) map[src] = c;
+            }
+            return c;
+        }
+
         /// <summary>Project asset paths of every copy (and project shader) the source file maps to.</summary>
         public List<string> CopiedAssetPaths()
         {
             var l = new List<string>();
             var seen = new HashSet<string>();
-            foreach (var kv in map)
+            foreach (UnityEngine.Object src in new List<UnityEngine.Object>(map.Keys))
             {
-                if (!Packable(kv.Value)) continue;
-                string p = AssetDatabase.GetAssetPath(kv.Value);
+                UnityEngine.Object c = CopyOf(src);
+                if (!Packable(c)) continue;
+                string p = AssetDatabase.GetAssetPath(c);
                 if (seen.Add(p)) l.Add(p);
             }
             return l;
@@ -353,10 +371,13 @@ namespace MaterialStudio.EditorTools
             else copy = UnityEngine.Object.Instantiate(src);
             copy.name = src.name;
             string ext = src is AnimationClip ? ".anim" : ".asset";
-            CreateNamed(copy, dir + "/Data", ext);
             map[src] = copy;
-            // ScriptableObjects (VRM BlendShapeAvatar -> clips, meta -> thumbnail) reference more bundle objects
+            // ScriptableObjects (VRM BlendShapeAvatar -> clips, meta -> thumbnail) reference more
+            // bundle objects. Save those first: written with a reference to an object that is not
+            // an asset yet, the file is imported again once it is, and Unity swaps the copy for a
+            // new object, so the one kept here (and its place in the export) is lost.
             if (copy is ScriptableObject) FixReferences(copy);
+            CreateNamed(copy, dir + "/Data", ext);
             return copy;
         }
 

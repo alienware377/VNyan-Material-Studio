@@ -24,6 +24,7 @@ _unitybuild/Assets/Plugins/
 
 # build intermediates (dist/MaterialStudio/ is the shipped payload and stays tracked)
 build/toolset_check.rsp
+build/toolset_check_2022.rsp
 build/*.dll
 *.log
 __pycache__/

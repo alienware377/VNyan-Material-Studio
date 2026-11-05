@@ -125,11 +125,16 @@ namespace MaterialStudio
             for (int i = 0; i < cfg.packages.Count; i++)
             {
                 PackageEntry pe = cfg.packages[i];
-                bool imported = !string.IsNullOrEmpty(pe.importedStamp) && pe.importedStamp == Stamp(pe);
+                string have = pe.warudoOnly ? pe.importedStampWarudo : pe.importedStamp;
+                bool imported = !string.IsNullOrEmpty(have) && have == Stamp(pe);
                 Ui.Label("Pk" + i, c, Path.GetFileName(pe.path.TrimEnd('\\', '/')) + (pe.isFolder ? "  (folder)" : ""), 8, y, w - 230, 20, 11);
-                Text st = Ui.Label("PkS" + i, c, !File.Exists(pe.path) && !Directory.Exists(pe.path) ? "missing" : (imported ? "imported" : "imports on next build"), w - 220, y, 140, 20, 10);
+                Text st = Ui.Label("PkS" + i, c, !File.Exists(pe.path) && !Directory.Exists(pe.path) ? "missing" :
+                    (imported ? "imported" : pe.warudoOnly ? "imports on next .warudo export" : "imports on next build"), w - 220, y, 140, 20, 10);
                 st.color = imported ? Ui.Good : Ui.Warn;
                 Ui.Button("PkX" + i, c, "Remove", w - 72, y, 66, 20, delegate { cfg.packages.Remove(pe); SaveConfig(); RebuildTab(); }, 10);
+                y += 20f;
+                Toggle wo = Ui.Check("PkW" + i, c, "Only for .warudo exports", 20, y, 260, 18, pe.warudoOnly, delegate (bool v) { pe.warudoOnly = v; SaveConfig(); RebuildTab(); });
+                if (i == 0) tips.Chip((RectTransform)wo.transform, "WarudoOnly", "Tick this for shaders that need a newer Unity than the VSF SDK's 2019.4 (Poiyomi 9 and later, for example). They then go only into the newer project .warudo exports use, so the 2019.4 project keeps working.", false);
                 y += 22f;
             }
             Button ap = Ui.Button("Button_AddPkg", c, "Add .unitypackage", 8, y, 150, 24, delegate
@@ -303,7 +308,7 @@ namespace MaterialStudio
             }
             foreach (PackageEntry pe in cfg.packages)
             {
-                if (pe.importedStamp == Stamp(pe) && pe.importedStamp.Length > 0) continue;
+                if (pe.warudoOnly || (pe.importedStamp == Stamp(pe) && pe.importedStamp.Length > 0)) continue;
                 PackageEntry p = pe;
                 if (pe.isFolder)
                 {
@@ -474,10 +479,11 @@ namespace MaterialStudio
             float y = 4f;
             Section(c, "Export a .vsfavatar with your edits baked in", y, w); y += 26f;
 
-            Toggle a = Ui.Check("Src_Vsf", c, "From this avatar's .vsfavatar file", 8, y, 300, 22, cfg.exportSourceKind != "prefab", delegate (bool on) { cfg.exportSourceKind = on ? "vsfavatar" : "prefab"; SaveConfig(); RebuildTab(); });
+            string kind = ExportKind;
+            Toggle a = SourceCheck(c, "Src_Vsf", "From this avatar's .vsfavatar file", "vsfavatar", y, 300);
             tips.Chip((RectTransform)a.transform, "SrcVsf", "Rebuilds the avatar from the .vsfavatar file inside the private Unity project. Needs the private project set up from your VSF SDK project (Packages tab) and the avatar's shaders added there.", false);
             y += 24f;
-            if (cfg.exportSourceKind != "prefab")
+            if (kind == "vsfavatar")
             {
                 Text f = Ui.Label("VsfP", c, string.IsNullOrEmpty(cfg.exportVsf) ? "(unknown: browse to it)" : cfg.exportVsf, 30, y, w - 140, 34, 11, TextAnchor.UpperLeft);
                 f.color = File.Exists(cfg.exportVsf) ? Ui.Ink : Ui.Warn;
@@ -492,10 +498,10 @@ namespace MaterialStudio
                 }, 11);
                 y += 38f;
             }
-            Toggle b = Ui.Check("Src_Prefab", c, "From the avatar's prefab in its Unity project", 8, y, 340, 22, cfg.exportSourceKind == "prefab", delegate (bool on) { cfg.exportSourceKind = on ? "prefab" : "vsfavatar"; SaveConfig(); RebuildTab(); });
+            Toggle b = SourceCheck(c, "Src_Prefab", "From the avatar's prefab in its Unity project", "prefab", y, 340);
             tips.Chip((RectTransform)b.transform, "SrcPrefab", "Best quality when you still have the project you made the avatar in: the edits are applied to COPIES of its materials and exported with the VSF SDK's own settings. Your prefab and materials are not changed.", false);
             y += 24f;
-            if (cfg.exportSourceKind == "prefab")
+            if (kind == "prefab")
             {
                 Ui.Label("ProjL", c, "Project:", 30, y, 70, 22, 11);
                 Ui.Label("ProjP", c, string.IsNullOrEmpty(cfg.exportProject) ? "(pick)" : cfg.exportProject, 100, y, w - 210, 22, 11);
@@ -521,6 +527,11 @@ namespace MaterialStudio
                 }, 11);
                 y += 30f;
             }
+            Toggle wt = SourceCheck(c, "Src_Warudo", "From a .warudo file (Warudo character mod)", "warudo", y, 340);
+            tips.Chip((RectTransform)wt.transform, "SrcWarudo", "Turns a Warudo mod into a .vsfavatar with your edits: the mod's own components and physics are rebuilt and it gets the humanoid and VRM setup, the way the Warudo Importer does it. " +
+                "Warudo mods are made with a newer Unity than the VSF SDK, so this uses a newer Unity in a second private project, and the file loads in VNyan but not in VSeeFace.", false);
+            y += 24f;
+            if (kind == "warudo") y = BuildWarudoSource(c, y, w);
 
             Section(c, "Output", y, w); y += 24f;
             string defDir = DefaultOutDir();
@@ -552,7 +563,8 @@ namespace MaterialStudio
             y += 30f;
 
             Button ex = Ui.Button("Button_Export", c, runner.Busy ? "Working..." : "Export .vsfavatar", 8, y, 180, 30, StartExport);
-            tips.Chip((RectTransform)ex.transform, "Export", "Saves your edits, snapshots live weights, then has Unity rebuild the avatar with everything applied, using the same settings as the VSF SDK's own exporter. VNyan and VSeeFace both load the result.", false);
+            tips.Chip((RectTransform)ex.transform, "Export", "Saves your edits, snapshots live weights, then has Unity rebuild the avatar with everything applied, using the same settings as the VSF SDK's own exporter. " +
+                (ExportKind == "warudo" ? "A file made from a .warudo mod loads in VNyan (VSeeFace's older Unity cannot open it)." : "VNyan and VSeeFace both load the result."), false);
             Ui.Button("Button_CancelEx", c, "Cancel", 194, y, 80, 30, delegate { runner.Cancel(); RebuildTab(); });
             y += 40f;
 
@@ -564,6 +576,22 @@ namespace MaterialStudio
             info.color = Ui.TextDim;
             y += 60f;
             Ui.SetContentHeight(c, y);
+        }
+
+        /// <summary>The export source; anything unknown from an old config counts as the .vsfavatar file.</summary>
+        string ExportKind { get { return cfg.exportSourceKind == "prefab" || cfg.exportSourceKind == "warudo" ? cfg.exportSourceKind : "vsfavatar"; } }
+
+        /// <summary>One of the source choices; picking one turns the others off (unticking does nothing).</summary>
+        Toggle SourceCheck(RectTransform c, string name, string label, string kind, float y, float w)
+        {
+            return Ui.Check(name, c, label, 8, y, w, 22, ExportKind == kind, delegate (bool on)
+            {
+                // a name typed for another source's avatar must not carry over and overwrite its file
+                if (on && ExportKind != kind) { cfg.exportName = ""; if (outNameField != null) outNameField.text = ""; }
+                if (on) cfg.exportSourceKind = kind;
+                SaveConfig();
+                RebuildTab();
+            });
         }
 
         /// <summary>A folder a file dialog can open at; never throws (an empty path used to crash Browse).</summary>
@@ -614,17 +642,20 @@ namespace MaterialStudio
 
         string DefaultOutDir()
         {
-            if (cfg.exportSourceKind != "prefab" && !string.IsNullOrEmpty(cfg.exportVsf))
+            string src = ExportKind == "vsfavatar" ? cfg.exportVsf : ExportKind == "warudo" ? cfg.exportWarudo : "";
+            if (!string.IsNullOrEmpty(src))
             {
-                try { return Path.GetDirectoryName(cfg.exportVsf); } catch { }
+                try { return Path.GetDirectoryName(src); } catch { }
             }
             return Path.Combine(ShaderCatalog.Dir, "Exports");
         }
 
         string DefaultOutName()
         {
-            string b = cfg.exportSourceKind == "prefab" ? Path.GetFileNameWithoutExtension(cfg.exportPrefab ?? "") : Path.GetFileNameWithoutExtension(cfg.exportVsf ?? "");
+            string kind = ExportKind;
+            string b = Path.GetFileNameWithoutExtension((kind == "prefab" ? cfg.exportPrefab : kind == "warudo" ? cfg.exportWarudo : cfg.exportVsf) ?? "");
             if (string.IsNullOrEmpty(b)) b = string.IsNullOrEmpty(avatarKey) ? "avatar" : avatarKey;
+            // never the plain name: a .vsfavatar made by the Warudo Importer may sit next to the mod
             return b + "_edited.vsfavatar";
         }
 
@@ -637,15 +668,25 @@ namespace MaterialStudio
             if (outNameField != null) cfg.exportName = outNameField.text.Trim();
             if (prefabField != null && cfg.exportSourceKind == "prefab") cfg.exportPrefab = prefabField.text.Trim();
             SaveConfig();
-            bool fromPrefab = cfg.exportSourceKind == "prefab";
-            string project = fromPrefab ? cfg.exportProject : WorkProject;
-            string source = fromPrefab ? cfg.exportPrefab : cfg.exportVsf;
+            string kind = ExportKind;
+            bool fromPrefab = kind == "prefab", fromWarudo = kind == "warudo";
+            string project = fromPrefab ? cfg.exportProject : fromWarudo ? cfg.warudoWorkspace : WorkProject;
+            string source = fromPrefab ? cfg.exportPrefab : fromWarudo ? cfg.exportWarudo : cfg.exportVsf;
             if (fromPrefab && (!UnityDriver.IsUnityProject(project) || string.IsNullOrEmpty(source)))
             { runner.Log("Pick the avatar's Unity project and its prefab first."); RebuildTab(); return; }
             if (!fromPrefab && (string.IsNullOrEmpty(source) || !File.Exists(source)))
-            { runner.Log("The avatar's .vsfavatar file was not found; Browse to it."); RebuildTab(); return; }
+            { runner.Log(fromWarudo ? "The .warudo file was not found; Browse to it." : "The avatar's .vsfavatar file was not found; Browse to it."); RebuildTab(); return; }
 
-            string exe = PickEditor(project);
+            string exe;
+            if (fromWarudo)
+            {
+                WarudoInfo mod = WarudoInfo.Read(source);
+                if (mod.error.Length > 0) { runner.Log("Could not read " + Path.GetFileName(source) + ": " + mod.error); RebuildTab(); return; }
+                var n = new List<string>();
+                exe = EditorForWarudo(mod.unityVersion, n);
+                foreach (string s in n) runner.Log(s);
+            }
+            else exe = PickEditor(project);
             if (exe == null || !CheckNotOpen(project)) { RebuildTab(); return; }
 
             string outDir = string.IsNullOrEmpty(cfg.exportOut) ? DefaultOutDir() : cfg.exportOut;
@@ -658,8 +699,13 @@ namespace MaterialStudio
             string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
             string jobDir = Path.Combine(UnityDriver.JobsDir, "export_" + stamp);
             Directory.CreateDirectory(jobDir);
+            // the saved edits and live weights belong to the avatar on screen; a mod that is not
+            // the one loaded gets neither (another avatar's edits could land on same-named parts)
+            bool onScreen = !fromWarudo || string.Equals(WarudoFileFor(sourcePath), source, StringComparison.OrdinalIgnoreCase);
+            if (!onScreen)
+                runner.Log("The avatar in VNyan is not this mod, so it is exported without saved edits or live weights. Load it with the Warudo Importer first to include them.");
             string live = "";
-            if (cfg.applyLiveWeights)
+            if (cfg.applyLiveWeights && onScreen)
             {
                 var n = new List<string>();
                 try
@@ -672,6 +718,22 @@ namespace MaterialStudio
                 foreach (string s in n) runner.Log(s);
             }
 
+            var job = new MSJob
+            {
+                kind = "export",
+                resultPath = Path.Combine(jobDir, "result.json"),
+                sourceKind = kind,
+                sourcePath = source,
+                recipePath = onScreen && File.Exists(RecipePath) ? RecipePath : "",
+                recipeDir = RecipeTexDir,
+                liveVbxPath = live,
+                outPath = outPath,
+                relockPoiyomi = cfg.relockPoiyomi,
+                applyLiveWeights = cfg.applyLiveWeights && live.Length > 0,
+                includeUnusedAssets = cfg.includeUnusedAssets,
+                convertPhysics = cfg.warudoPhysics,
+            };
+            string jobPath = Path.Combine(jobDir, "job.json");
             if (fromPrefab)
             {
                 runner.Enqueue(new UnityStep
@@ -680,25 +742,14 @@ namespace MaterialStudio
                     work = delegate (List<string> n) { return UnityDriver.InstallToolset(project, n); }
                 });
             }
-            else if (!QueuePrepare(project, exe, true)) { RebuildTab(); return; }
-
-
-            var job = new MSJob
+            else if (fromWarudo)
             {
-                kind = "export",
-                resultPath = Path.Combine(jobDir, "result.json"),
-                sourceKind = fromPrefab ? "prefab" : "vsfavatar",
-                sourcePath = source,
-                recipePath = File.Exists(RecipePath) ? RecipePath : "",
-                recipeDir = RecipeTexDir,
-                liveVbxPath = live,
-                outPath = outPath,
-                relockPoiyomi = cfg.relockPoiyomi,
-                applyLiveWeights = cfg.applyLiveWeights && live.Length > 0,
-                includeUnusedAssets = cfg.includeUnusedAssets,
-            };
-            string jobPath = Path.Combine(jobDir, "job.json");
-            File.WriteAllText(jobPath, JsonIO.ToJson(job, true));
+                // the unpack step writes the job once it knows where the mod's bundle went
+                runner.Enqueue(UnpackWarudoStep(source, job, jobDir, jobPath));
+                if (!QueuePrepareWarudo(project, exe)) { runner.Cancel(); RebuildTab(); return; }
+            }
+            else if (!QueuePrepare(project, exe, true)) { RebuildTab(); return; }
+            if (!fromWarudo) File.WriteAllText(jobPath, JsonIO.ToJson(job, true));
             SetJob("Exporting " + name, "Unity rebuilds the avatar with your edits baked in; you can keep editing", "saved to " + outPath);
             runner.Enqueue(new UnityStep
             {

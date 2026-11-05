@@ -25,7 +25,8 @@ namespace MaterialStudio.EditorTools
                 Log("job '" + job.kind + "' on Unity " + Application.unityVersion);
                 res.ok = true;
                 string kind = " " + job.kind + " ";
-                if (kind.Contains(" catalog ")) ShaderBundleBuilder.WriteCatalog(job.catalogPath, res);
+                if (kind.Contains(" setup ")) Setup(res);
+                if (res.ok && kind.Contains(" catalog ")) ShaderBundleBuilder.WriteCatalog(job.catalogPath, res);
                 if (res.ok && kind.Contains(" shaders ")) ShaderBundleBuilder.Build(job, res);
                 if (res.ok && kind.Contains(" export ")) VsfExporter.Export(job, res);
                 if (res.ok && kind.Contains(" describe ")) Describe(job.sourcePath, res);
@@ -51,6 +52,22 @@ namespace MaterialStudio.EditorTools
         }
 
         public static void Log(string s) { Debug.Log("[MS] " + s); }
+
+        /// <summary>
+        /// First run of a project the plugin made itself: the settings avatars are built with
+        /// (linear colour, every bone weight kept).
+        /// </summary>
+        static void Setup(MSResult res)
+        {
+            if (PlayerSettings.colorSpace != ColorSpace.Linear)
+            {
+                PlayerSettings.colorSpace = ColorSpace.Linear;
+                res.notes.Add("Set the project to linear colour, like VNyan.");
+            }
+            QualitySettings.skinWeights = SkinWeights.Unlimited;
+            AssetDatabase.SaveAssets();
+            res.notes.Add("Unity " + Application.unityVersion + " project is ready.");
+        }
 
         /// <summary>Diagnostics: list every renderer slot, material and shader in a .vsfavatar.</summary>
         static void Describe(string path, MSResult res)
