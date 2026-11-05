@@ -15,9 +15,9 @@ namespace MaterialStudio
     }
 
     /// <summary>
-    /// Every shader the user can switch a material to: what VNyan and the avatar already
+    /// Every shader a material can be switched to: what VNyan and the avatar already
     /// have in memory, Unity's built-ins this plugin ships in its .vnobj, shaders from the
-    /// shader bundle built from the user's packages, and (listed but greyed) shaders the
+    /// shader bundle built from the added packages, and (listed but greyed) shaders the
     /// workspace has that are not built yet.
     /// </summary>
     public class ShaderCatalog
@@ -130,7 +130,27 @@ namespace MaterialStudio
                     Material m;
                     if (byName.TryGetValue(e.material, out m)) lockedById[Path.GetFileName(path) + "|" + e.id] = m;
                 }
+            // locked shader -> a material compiled on it, whose OriginalKeywords tag fills in
+            // recipes that lack one
+            foreach (Material m in byName.Values)
+            {
+                if (m.shader == null) continue;
+                Material had;
+                if (!lockedByShader.TryGetValue(m.shader.name, out had) ||
+                    m.GetTag("OriginalKeywords", false, "").Length > had.GetTag("OriginalKeywords", false, "").Length)
+                    lockedByShader[m.shader.name] = m;
+            }
             return man;
+        }
+
+        readonly Dictionary<string, Material> lockedByShader = new Dictionary<string, Material>();
+
+        /// <summary>The keywords a locked shader from a lock bundle was compiled with, or "".</summary>
+        public string LockedOriginalKeywords(Shader s)
+        {
+            Material m;
+            if (s == null || !lockedByShader.TryGetValue(s.name, out m) || m == null) return "";
+            return m.GetTag("OriginalKeywords", false, "");
         }
 
         public Material LockedMaterial(string bundleFile, string id)

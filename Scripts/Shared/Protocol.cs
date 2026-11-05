@@ -59,6 +59,7 @@ namespace MaterialStudio
         public string outPath = "";           // final .vsfavatar
         public bool relockPoiyomi = true;
         public bool applyLiveWeights = true;
+        public bool includeUnusedAssets = true;   // also pack what the source file had but nothing uses now
 
         // lock
         public List<LockRequest> locks = new List<LockRequest>();

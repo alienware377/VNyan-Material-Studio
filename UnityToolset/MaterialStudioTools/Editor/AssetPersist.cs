@@ -41,6 +41,13 @@ namespace MaterialStudio.EditorTools
         // asset is one with a path.
         public static bool IsAsset(UnityEngine.Object o) { return o != null && !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(o)); }
 
+        /// <summary>A project asset that can go into a bundle by itself: under Assets/ and not a script.</summary>
+        public static bool Packable(UnityEngine.Object o)
+        {
+            string p = o != null ? AssetDatabase.GetAssetPath(o) : null;
+            return !string.IsNullOrEmpty(p) && p.StartsWith("Assets/", StringComparison.Ordinal) && !p.EndsWith(".cs", StringComparison.OrdinalIgnoreCase);
+        }
+
         public void PersistAll(GameObject root)
         {
             // note which textures are used as normal maps before copying any of them
@@ -138,34 +145,36 @@ namespace MaterialStudio.EditorTools
         {
             Mesh copy = UnityEngine.Object.Instantiate(src);
             copy.name = src.name;
-            AssetDatabase.CreateAsset(copy, MSBatch.NamedPath(dir + "/Meshes", src.name, ".asset"));
+            CreateNamed(copy, dir + "/Meshes", ".asset");
             map[src] = copy;
             return copy;
         }
+
+        /// <summary>
+        /// With this on, every texture a material holds is copied, also ones its shader does
+        /// not use (leftovers from an earlier shader), because they are part of the original file.
+        /// </summary>
+        public bool keepAllMaterialTextures;
 
         public Material CopyMaterial(Material src)
         {
             Material copy = UnityEngine.Object.Instantiate(src);
             copy.name = src.name;
-            // assigning a shader resets the render queue to the shader's default (measured:
-            // eye highlight 2951 -> 2000, brows 3000 -> 2000), so carry it over by hand
-            int queue = src.renderQueue;
+            // Assigning a shader resets the render queue to the shader's default (a queue of 2951
+            // or 3000 becomes 2000), drops the RenderType override (MToon
+            // Transparent -> Opaque) and re-runs the drawers, which change keywords. AssignShaderExact
+            // puts all three back exactly as they shipped.
             if (src.shader != null)
             {
                 Shader local = ShaderBundleBuilder.FindShader(src.shader.name);
-                if (local != null) { copy.shader = local; copy.renderQueue = queue; }
+                if (local != null) PoiyomiKeywords.AssignShaderExact(copy, local, src.shaderKeywords);
                 else
                 {
-                    // locked Poiyomi: rebind to the shader it was locked from; the exporter locks it again
+                    // locked Poiyomi: rebind to the shader it was locked from (keywords from its
+                    // OriginalKeywords tag, like Thry's unlock); the exporter locks it again
                     string orig = RecipeEngine.PoiyomiOriginalShader(src);
                     Shader o = orig.Length > 0 ? ShaderBundleBuilder.FindShader(orig) : null;
-                    if (o != null)
-                    {
-                        int q = src.renderQueue;
-                        copy.shader = o;
-                        copy.renderQueue = q;
-                        if (copy.HasProperty("_ShaderOptimizerEnabled")) copy.SetFloat("_ShaderOptimizerEnabled", 0f);
-                    }
+                    if (o != null) PoiyomiKeywords.Rebind(copy, o, notes);
                     else
                     {
                         shaderMisses++;
@@ -176,22 +185,141 @@ namespace MaterialStudio.EditorTools
                 }
             }
             map[src] = copy;
-            // textures
+            // textures: every slot the material stores (m_TexEnvs), not only the shader's own
+            var used = new HashSet<string>();
             Shader sh = copy.shader;
             if (sh != null)
+                for (int i = 0; i < sh.GetPropertyCount(); i++)
+                    if (sh.GetPropertyType(i) == UnityEngine.Rendering.ShaderPropertyType.Texture) used.Add(sh.GetPropertyName(i));
+            var so = new SerializedObject(copy);
+            SerializedProperty envs = so.FindProperty("m_SavedProperties.m_TexEnvs");
+            bool changed = false;
+            if (envs != null && envs.isArray)
             {
-                int n = sh.GetPropertyCount();
-                for (int i = 0; i < n; i++)
+                for (int i = 0; i < envs.arraySize; i++)
                 {
-                    if (sh.GetPropertyType(i) != UnityEngine.Rendering.ShaderPropertyType.Texture) continue;
-                    string pn = sh.GetPropertyName(i);
+                    SerializedProperty e = envs.GetArrayElementAtIndex(i);
+                    SerializedProperty key = e.FindPropertyRelative("first");
+                    SerializedProperty tex = e.FindPropertyRelative("second.m_Texture");
+                    if (key == null || tex == null) continue;
+                    var t = tex.objectReferenceValue as Texture;
+                    if (t == null || IsAsset(t)) continue;
+                    // a leftover slot that is not copied must not keep pointing into the source bundle
+                    Texture c = used.Contains(key.stringValue) || keepAllMaterialTextures ? Persist(t) as Texture : null;
+                    tex.objectReferenceValue = c;
+                    changed = true;
+                }
+            }
+            if (changed) so.ApplyModifiedPropertiesWithoutUndo();
+            else if (sh != null)
+            {
+                foreach (string pn in used)
+                {
                     Texture t = copy.GetTexture(pn);
                     if (t == null || IsAsset(t)) continue;
                     copy.SetTexture(pn, Persist(t) as Texture);
                 }
             }
-            AssetDatabase.CreateAsset(copy, MSBatch.NamedPath(dir + "/Materials", src.name, ".mat"));
+            CreateNamed(copy, dir + "/Materials", ".mat");
             return copy;
+        }
+
+        // ------------------------------------------------------------------ names
+
+        bool namesNoted;
+
+        /// <summary>Saves a new asset under the object's exact name (see <see cref="MSBatch.CreateNamed"/>).</summary>
+        public void CreateNamed(UnityEngine.Object obj, string folder, string ext)
+        {
+            if (MSBatch.CreateNamed(obj, folder, ext) || namesNoted) return;
+            namesNoted = true;
+            notes.Add("Some names cannot be file names; those objects are kept under their exact names inside a " + MSBatch.NameHolderFile + " file.");
+        }
+
+        /// <summary>
+        /// Copies every asset of the source file that is not copied yet (textures a recipe
+        /// replaced, leftovers nothing points at), so the export holds everything the original
+        /// did. Returns how many were copied.
+        /// </summary>
+        public int PersistEverything(IEnumerable<UnityEngine.Object> objs)
+        {
+            int n = 0;
+            foreach (UnityEngine.Object o in objs)
+            {
+                if (o == null || o is GameObject || o is Component || o is MonoScript || o is AssetBundle) continue;
+                if (IsAsset(o) || map.ContainsKey(o)) continue;
+                // Persist notes what cannot be copied (audio, fonts, animator controllers)
+                if (Persist(o) != null) n++;
+            }
+            return n;
+        }
+
+        /// <summary>
+        /// A material locked by an earlier export lists, in its <see cref="VsfExporter.SlotTexturesTag"/>
+        /// tag, the textures of slots the locked shader does not use. Once a material of
+        /// <paramref name="root"/> is back on its full shader, those slots are filled again by
+        /// texture name from <paramref name="sourceObjects"/>. Returns how many were filled.
+        /// </summary>
+        public int RestoreSlotTextures(GameObject root, IEnumerable<UnityEngine.Object> sourceObjects)
+        {
+            var byName = new Dictionary<string, Texture>();
+            var twins = new HashSet<string>();
+            foreach (UnityEngine.Object o in sourceObjects)
+            {
+                var t = o as Texture;
+                if (t == null) continue;
+                Texture had;
+                if (!byName.TryGetValue(t.name, out had)) byName[t.name] = t;
+                else if (had != t) twins.Add(t.name);
+            }
+            int n = 0;
+            var seen = new HashSet<Material>();
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>(true))
+                foreach (Material m in r.sharedMaterials)
+                {
+                    if (m == null || !seen.Add(m) || m.shader == null || m.shader.name.StartsWith("Hidden/", StringComparison.Ordinal)) continue;
+                    string tag = m.GetTag(VsfExporter.SlotTexturesTag, false, "");
+                    if (tag.Length == 0) continue;
+                    var left = new List<string>();
+                    foreach (string pair in tag.Split('|'))
+                    {
+                        int eq = pair.IndexOf('=');
+                        if (eq <= 0) continue;
+                        string slot = pair.Substring(0, eq), tn = pair.Substring(eq + 1);
+                        if (!m.HasProperty(slot)) { left.Add(pair); continue; }
+                        // already filled (the recipe set it): the pair is used up
+                        if (m.GetTexture(slot) != null) continue;
+                        // a name two textures share does not say which one it was
+                        if (twins.Contains(tn))
+                        {
+                            left.Add(pair);
+                            notes.Add(m.name + ": " + slot + " stays empty, the file has more than one texture named '" + tn + "'.");
+                            continue;
+                        }
+                        Texture src;
+                        Texture c = byName.TryGetValue(tn, out src) ? Persist(src) as Texture : null;
+                        if (c == null) { left.Add(pair); continue; }
+                        m.SetTexture(slot, c);
+                        n++;
+                    }
+                    m.SetOverrideTag(VsfExporter.SlotTexturesTag, string.Join("|", left.ToArray()));
+                    EditorUtility.SetDirty(m);
+                }
+            return n;
+        }
+
+        /// <summary>Project asset paths of every copy (and project shader) the source file maps to.</summary>
+        public List<string> CopiedAssetPaths()
+        {
+            var l = new List<string>();
+            var seen = new HashSet<string>();
+            foreach (var kv in map)
+            {
+                if (!Packable(kv.Value)) continue;
+                string p = AssetDatabase.GetAssetPath(kv.Value);
+                if (seen.Add(p)) l.Add(p);
+            }
+            return l;
         }
 
         public GameObject avatarRoot;
@@ -204,7 +332,7 @@ namespace MaterialStudio.EditorTools
                 a = AvatarBuilder.BuildHumanAvatar(avatarRoot, src.humanDescription);
             if (a == null) { notes.Add("The humanoid Avatar could not be copied."); return null; }
             a.name = src.name;
-            AssetDatabase.CreateAsset(a, MSBatch.NamedPath(dir + "/Data", src.name, ".asset"));
+            CreateNamed(a, dir + "/Data", ".asset");
             map[src] = a;
             return a;
         }
@@ -225,7 +353,7 @@ namespace MaterialStudio.EditorTools
             else copy = UnityEngine.Object.Instantiate(src);
             copy.name = src.name;
             string ext = src is AnimationClip ? ".anim" : ".asset";
-            AssetDatabase.CreateAsset(copy, MSBatch.NamedPath(dir + "/Data", src.name, ext));
+            CreateNamed(copy, dir + "/Data", ext);
             map[src] = copy;
             // ScriptableObjects (VRM BlendShapeAvatar -> clips, meta -> thumbnail) reference more bundle objects
             if (copy is ScriptableObject) FixReferences(copy);
@@ -306,6 +434,7 @@ namespace MaterialStudio.EditorTools
                 flat.ReadPixels(new Rect(0, 0, src.width, src.height), 0, 0);
                 flat.Apply();
                 if (normal) DecodeNormals(flat);
+                if (!MSBatch.FileSafe(src.name)) return SaveTextureNamed(src, flat, srgb, normal);
                 byte[] png = flat.EncodeToPNG();
                 UnityEngine.Object.DestroyImmediate(flat);
 
@@ -315,17 +444,44 @@ namespace MaterialStudio.EditorTools
                 var imp = AssetImporter.GetAtPath(path) as TextureImporter;
                 if (imp != null)
                 {
+                    // the same settings the texture shipped with: format class (uncompressed stays
+                    // uncompressed: LUTs and matcaps band badly as DXT1), colour space, mips,
+                    // filter, aniso, wrap and size (no power-of-two rescale)
                     imp.textureType = normal ? TextureImporterType.NormalMap : TextureImporterType.Default;
                     imp.sRGBTexture = srgb && !normal;
                     imp.mipmapEnabled = src.mipmapCount > 1;
-                    imp.wrapMode = src.wrapMode;
+                    imp.wrapModeU = src.wrapModeU;
+                    imp.wrapModeV = src.wrapModeV;
+                    imp.wrapModeW = src.wrapModeW;
                     imp.filterMode = src.filterMode;
                     imp.anisoLevel = src.anisoLevel;
+                    imp.mipMapBias = src.mipMapBias;
                     imp.alphaIsTransparency = false;
+                    imp.npotScale = TextureImporterNPOTScale.None;
+                    imp.isReadable = src.isReadable;
+                    imp.streamingMipmaps = src.streamingMipmaps;
                     imp.maxTextureSize = NextPow2(Mathf.Max(src.width, src.height));
+                    TextureFormat sf = src.format;
+                    bool crunched = sf == TextureFormat.DXT1Crunched || sf == TextureFormat.DXT5Crunched;
+                    imp.textureCompression = IsUncompressed(sf) ? TextureImporterCompression.Uncompressed : TextureImporterCompression.Compressed;
+                    imp.crunchedCompression = crunched;
+                    TextureImporterFormat f;
+                    // normal maps: the default (DXT5nm) is what DXT5 normal maps ship as
+                    if (ImporterFormat(sf, out f) && !(normal && sf == TextureFormat.DXT5))
+                    {
+                        TextureImporterPlatformSettings ps = imp.GetPlatformTextureSettings("Standalone");
+                        ps.overridden = true;
+                        ps.format = f;
+                        ps.maxTextureSize = imp.maxTextureSize;
+                        ps.textureCompression = imp.textureCompression;
+                        ps.crunchedCompression = crunched;
+                        imp.SetPlatformTextureSettings(ps);
+                    }
                     imp.SaveAndReimport();
                 }
                 Texture2D t = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                if (t != null && t.format != src.format && !(normal && src.format == TextureFormat.DXT5))
+                    notes.Add("Texture '" + src.name + "' was " + src.format + " and is now " + t.format + ".");
                 if (t != null && !textureByOriginalName.ContainsKey(src.name)) textureByOriginalName[src.name] = t;
                 map[src] = t;
                 return t;
@@ -335,6 +491,65 @@ namespace MaterialStudio.EditorTools
                 RenderTexture.active = prev;
                 RenderTexture.ReleaseTemporary(rt);
             }
+        }
+
+        static bool IsUncompressed(TextureFormat f)
+        {
+            switch (f)
+            {
+                case TextureFormat.Alpha8: case TextureFormat.R8: case TextureFormat.R16: case TextureFormat.RG16:
+                case TextureFormat.RGB24: case TextureFormat.RGBA32: case TextureFormat.ARGB32: case TextureFormat.BGRA32:
+                case TextureFormat.RGB565: case TextureFormat.ARGB4444: case TextureFormat.RGBA4444:
+                case TextureFormat.RHalf: case TextureFormat.RGHalf: case TextureFormat.RGBAHalf:
+                case TextureFormat.RFloat: case TextureFormat.RGFloat: case TextureFormat.RGBAFloat: case TextureFormat.RGB9e5Float:
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>The importer format that produces this texture format (names match except a few).</summary>
+        static bool ImporterFormat(TextureFormat f, out TextureImporterFormat r)
+        {
+            switch (f)
+            {
+                case TextureFormat.RGB565: r = TextureImporterFormat.RGB16; return true;
+                case TextureFormat.ARGB4444: r = TextureImporterFormat.ARGB16; return true;
+                case TextureFormat.RGBA4444: r = TextureImporterFormat.RGBA16; return true;
+                case TextureFormat.BGRA32: r = TextureImporterFormat.RGBA32; return true;
+                case TextureFormat.RGB9e5Float: r = TextureImporterFormat.RGB9E5; return true;
+            }
+            try
+            {
+                r = (TextureImporterFormat)Enum.Parse(typeof(TextureImporterFormat), f.ToString());
+                return Enum.IsDefined(typeof(TextureImporterFormat), r);
+            }
+            catch { r = TextureImporterFormat.Automatic; return false; }
+        }
+
+        /// <summary>
+        /// A texture whose name cannot be a file name: kept in memory in its shipped format and
+        /// saved as a sub-asset (see <see cref="CreateNamed"/>), so the name stays exact.
+        /// </summary>
+        Texture2D SaveTextureNamed(Texture2D src, Texture2D flat, bool srgb, bool normal)
+        {
+            bool mips = src.mipmapCount > 1;
+            var t = new Texture2D(src.width, src.height, TextureFormat.RGBA32, mips, !srgb || normal);
+            t.SetPixels32(flat.GetPixels32());
+            t.Apply(mips);
+            UnityEngine.Object.DestroyImmediate(flat);
+            TextureFormat target = normal && !IsUncompressed(src.format) ? TextureFormat.DXT5 : src.format;
+            try { if (target != TextureFormat.RGBA32) EditorUtility.CompressTexture(t, target, 100); }
+            catch (Exception e) { notes.Add("Texture '" + src.name + "' kept uncompressed (" + e.Message + ")."); }
+            t.name = src.name;
+            t.wrapModeU = src.wrapModeU;
+            t.wrapModeV = src.wrapModeV;
+            t.filterMode = src.filterMode;
+            t.anisoLevel = src.anisoLevel;
+            t.mipMapBias = src.mipMapBias;
+            CreateNamed(t, dir + "/Textures", ".asset");
+            if (!textureByOriginalName.ContainsKey(src.name)) textureByOriginalName[src.name] = t;
+            map[src] = t;
+            return t;
         }
 
         /// <summary>
@@ -378,10 +593,46 @@ namespace MaterialStudio.EditorTools
             best.name = src.name;
             best.wrapMode = src.wrapMode;
             best.filterMode = src.filterMode;
-            AssetDatabase.CreateAsset(best, MSBatch.NamedPath(dir + "/Textures", src.name, ".cubemap"));
+            best.anisoLevel = src.anisoLevel;
+            best.mipMapBias = src.mipMapBias;
+            CreateNamed(best, dir + "/Textures", ".cubemap");
+            CopyFlags(src, best, "m_StreamingMipmaps", "m_StreamingMipmapsPriority");
+            // GPU-only like the original, so VNyan keeps no CPU copy. Only once the pixels are
+            // saved: dropping the flag on the live copy before that could throw them away.
+            if (!src.isReadable)
+            {
+                AssetDatabase.SaveAssets();
+                var so = new SerializedObject(best);
+                SerializedProperty rd = so.FindProperty("m_IsReadable");
+                if (rd != null && rd.boolValue)
+                {
+                    rd.boolValue = false;
+                    so.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(best);
+                }
+            }
             if (!textureByOriginalName.ContainsKey(src.name)) textureByOriginalName[src.name] = best;
             map[src] = best;
             return best;
+        }
+
+        static void CopyFlags(UnityEngine.Object from, UnityEngine.Object to, params string[] props)
+        {
+            try
+            {
+                var a = new SerializedObject(from);
+                var b = new SerializedObject(to);
+                bool changed = false;
+                foreach (string pn in props)
+                {
+                    SerializedProperty pa = a.FindProperty(pn), pb = b.FindProperty(pn);
+                    if (pa == null || pb == null || pa.propertyType != pb.propertyType) continue;
+                    if (pa.propertyType == SerializedPropertyType.Boolean && pa.boolValue != pb.boolValue) { pb.boolValue = pa.boolValue; changed = true; }
+                    else if (pa.propertyType == SerializedPropertyType.Integer && pa.intValue != pb.intValue) { pb.intValue = pa.intValue; changed = true; }
+                }
+                if (changed) { b.ApplyModifiedPropertiesWithoutUndo(); EditorUtility.SetDirty(to); }
+            }
+            catch { }
         }
 
         static Cubemap RenderCube(Cubemap src, Material mat, bool hdr, int flip)

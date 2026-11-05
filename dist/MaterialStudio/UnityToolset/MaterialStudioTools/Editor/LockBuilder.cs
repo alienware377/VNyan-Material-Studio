@@ -65,7 +65,8 @@ namespace MaterialStudio.EditorTools
                 // VsfExporter.LockPoiyomi works on the materials under a GameObject's renderers.
                 var mr = holder.AddComponent<MeshRenderer>();
                 mr.sharedMaterials = mats.ToArray();
-                VsfExporter.LockPoiyomi(holder, res.notes, dir);
+                var flat = new Dictionary<Material, string>();
+                VsfExporter.LockPoiyomi(holder, res.notes, dir, null, null, flat);
                 AssetDatabase.SaveAssets();
 
                 var manifest = new LockManifest { bundleFile = job.bundleName, builtAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") };
@@ -73,6 +74,13 @@ namespace MaterialStudio.EditorTools
                 for (int i = 0; i < mats.Count; i++)
                 {
                     Material m = mats[i];
+                    string reason;
+                    if (flat.TryGetValue(m, out reason))
+                    {
+                        // locking it would drop a feature it uses, so it would look flat in VNyan
+                        res.notes.Add("The lock of " + ids[i] + " would come out without all its features (" + reason + "); it stays unlocked.");
+                        continue;
+                    }
                     if (m.shader == null || !m.shader.name.StartsWith("Hidden/", StringComparison.Ordinal))
                     {
                         res.notes.Add("Poiyomi did not lock material " + ids[i] + "; it stays unlocked.");

@@ -12,6 +12,8 @@ namespace MaterialStudio
         static string CatalogPath { get { return Path.Combine(ShaderCatalog.Dir, "workspace_catalog.json"); } }
         string WorkProject { get { return cfg.useSeedDirectly ? cfg.seedProject : cfg.workspace; } }
         Text jobLog;
+        InputField outNameField;
+        InputField prefabField;
         float nextLogPaint;
         string shaderPickSearch = "";
 
@@ -455,7 +457,7 @@ namespace MaterialStudio
             foreach (var kv in oldUsers)
             {
                 Shader ns = catalog.Find(kv.Value);
-                if (ns != null && ns != kv.Key.shader) { int q = kv.Key.renderQueue; kv.Key.shader = ns; kv.Key.renderQueue = q; moved++; }
+                if (ns != null && ns != kv.Key.shader) { RecipeEngine.SwapShaderKeepTags(kv.Key, ns); moved++; }
             }
             ShaderLayout.ClearCache();
             if (moved > 0) runner.Log("Moved " + moved + " material(s) onto the new build.");
@@ -504,8 +506,8 @@ namespace MaterialStudio
                 }, 11);
                 y += 26f;
                 Ui.Label("PrefL", c, "Prefab:", 30, y, 70, 22, 11);
-                InputField pf = Ui.Input("Input_Prefab", c, cfg.exportPrefab, 100, y, w - 210, 22, InputField.ContentType.Standard, delegate (string s) { cfg.exportPrefab = s.Trim(); SaveConfig(); });
-                ((Text)pf.placeholder).text = "Assets/.../MyAvatar.prefab (Enter to keep)";
+                InputField pf = prefabField = Ui.Input("Input_Prefab", c, cfg.exportPrefab, 100, y, w - 210, 22, InputField.ContentType.Standard, delegate (string s) { cfg.exportPrefab = s.Trim(); SaveConfig(); });
+                ((Text)pf.placeholder).text = "Assets/.../MyAvatar.prefab";
                 Ui.Button("Button_PickPrefab", c, "Browse", w - 100, y, 90, 22, delegate
                 {
                     string start = UnityDriver.IsUnityProject(cfg.exportProject) ? Path.Combine(cfg.exportProject, "Assets") : "";
@@ -531,7 +533,7 @@ namespace MaterialStudio
             }, 11);
             y += 38f;
             Ui.Label("NameL", c, "File:", 8, y, 60, 22, 11);
-            InputField nf = Ui.Input("Input_OutName", c, cfg.exportName, 70, y, 280, 22, InputField.ContentType.Standard, delegate (string s) { cfg.exportName = s.Trim(); SaveConfig(); });
+            InputField nf = outNameField = Ui.Input("Input_OutName", c, cfg.exportName, 70, y, 280, 22, InputField.ContentType.Standard, delegate (string s) { cfg.exportName = s.Trim(); SaveConfig(); });
             ((Text)nf.placeholder).text = DefaultOutName();
             y += 30f;
 
@@ -541,6 +543,9 @@ namespace MaterialStudio
             y += 24f;
             Toggle t2 = Ui.Check("Toggle_Relock", c, "Keep Poiyomi locked where it is locked now (recommended)", 8, y, w - 20, 22, cfg.relockPoiyomi, delegate (bool v) { cfg.relockPoiyomi = v; SaveConfig(); });
             tips.Chip((RectTransform)t2.transform, "Relock", "Each Poiyomi material comes out locked or unlocked exactly as it is in VNyan right now (Lock & optimise / Unlock on the Shader tab). Off: everything is exported unlocked. Needs the matching Poiyomi version in the Unity project.", false);
+            y += 24f;
+            Toggle t4 = Ui.Check("Toggle_IncludeUnused", c, "Include unused assets from the original file", 8, y, w - 20, 22, cfg.includeUnusedAssets, delegate (bool v) { cfg.includeUnusedAssets = v; SaveConfig(); });
+            tips.Chip((RectTransform)t4.transform, "IncludeUnused", "Packs everything the original .vsfavatar had, under the original names, even assets nothing uses any more (like textures your edits replaced). Off: only what the avatar uses now, for a smaller file. Exports from a prefab always pack what the prefab uses.", false);
             y += 24f;
             Toggle t3 = Ui.Check("Toggle_LoadAfter", c, "Load the new avatar in VNyan when done", 8, y, w - 20, 22, cfg.loadAfterExport, delegate (bool v) { cfg.loadAfterExport = v; SaveConfig(); });
             tips.Chip((RectTransform)t3.transform, "LoadAfter", "Loads the exported file through VNyan's normal avatar loading, so you can check it straight away.", false);
@@ -628,6 +633,9 @@ namespace MaterialStudio
             if (runner.Busy) { SetStatus("A job is already running."); return; }
             if (boundAvatar == null) { runner.Log("Load the avatar in VNyan first."); RebuildTab(); return; }
             SaveRecipe();
+            // these fields only commit on Enter, so take what is typed in them now
+            if (outNameField != null) cfg.exportName = outNameField.text.Trim();
+            if (prefabField != null && cfg.exportSourceKind == "prefab") cfg.exportPrefab = prefabField.text.Trim();
             SaveConfig();
             bool fromPrefab = cfg.exportSourceKind == "prefab";
             string project = fromPrefab ? cfg.exportProject : WorkProject;
@@ -687,6 +695,7 @@ namespace MaterialStudio
                 outPath = outPath,
                 relockPoiyomi = cfg.relockPoiyomi,
                 applyLiveWeights = cfg.applyLiveWeights && live.Length > 0,
+                includeUnusedAssets = cfg.includeUnusedAssets,
             };
             string jobPath = Path.Combine(jobDir, "job.json");
             File.WriteAllText(jobPath, JsonIO.ToJson(job, true));

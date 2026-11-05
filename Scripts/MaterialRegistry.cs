@@ -12,7 +12,7 @@ namespace MaterialStudio
         public MatSnapshot orig;             // how it shipped (frozen at first sight this session)
         public readonly List<SlotRef> slots = new List<SlotRef>();
         public readonly List<Renderer> renderers = new List<Renderer>();
-        public bool unique;                  // split off a shared material by the user
+        public bool unique;                  // split off a shared material with Make unique
         public bool unlockedPoiyomi;
         public string originalName;
         public string originalShader;

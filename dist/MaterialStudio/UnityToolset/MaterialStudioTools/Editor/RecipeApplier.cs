@@ -53,7 +53,7 @@ namespace MaterialStudio.EditorTools
                 Material c;
                 if (copies.TryGetValue(m, out c)) return c;
                 c = new Material(m) { name = m.name };
-                AssetDatabase.CreateAsset(c, MSBatch.NamedPath(assetDir + "/Materials", m.name, ".mat"));
+                MSBatch.CreateNamed(c, assetDir + "/Materials", ".mat");
                 copies[m] = c;
                 ReplaceEverywhere(root, m, c);
                 return c;
@@ -82,16 +82,19 @@ namespace MaterialStudio.EditorTools
                     Material key = m;
                     foreach (var kv in copies) if (kv.Value == m) key = kv.Key;
                     if (shipped.TryGetValue(key, out snap)) snap.Restore(u);
-                    AssetDatabase.CreateAsset(u, MSBatch.NamedPath(assetDir + "/Materials", u.name, ".mat"));
+                    MSBatch.CreateNamed(u, assetDir + "/Materials", ".mat");
                     foreach (SlotRef s in e.slots) SetMaterialAt(root, s, u);
                     m = u;
                 }
                 else m = own(m);
 
-                RecipeEngine.Apply(m, e,
-                    delegate (string sn) { return ShaderBundleBuilder.FindShader(sn); },
-                    delegate (TexEdit te) { return ResolveTexture(te, root, texDir, assetDir, texByOriginalName, fileTex, m, notes); },
-                    notes);
+                // true: the recipe has no usable keyword list for this lock. All values are set by
+                // now, so work the keywords out from them.
+                if (RecipeEngine.Apply(m, e,
+                        delegate (string sn) { return ShaderBundleBuilder.FindShader(sn); },
+                        delegate (TexEdit te) { return ResolveTexture(te, root, texDir, assetDir, texByOriginalName, fileTex, m, notes); },
+                        notes))
+                    PoiyomiKeywords.Derive(m, notes);
                 EditorUtility.SetDirty(m);
                 applied++;
             }
@@ -119,7 +122,7 @@ namespace MaterialStudio.EditorTools
                     if (!copies.TryGetValue(m, out c))
                     {
                         c = new Material(m) { name = m.name };
-                        AssetDatabase.CreateAsset(c, MSBatch.NamedPath(assetDir + "/Materials", m.name, ".mat"));
+                        MSBatch.CreateNamed(c, assetDir + "/Materials", ".mat");
                         copies[m] = c;
                     }
                     ms[i] = c;
@@ -161,7 +164,8 @@ namespace MaterialStudio.EditorTools
                 if (fileTex.TryGetValue(rel, out t)) return t;
                 string full = Path.Combine(texDir, rel.Replace('/', Path.DirectorySeparatorChar));
                 if (!File.Exists(full)) return null;
-                string dst = AssetDatabase.GenerateUniqueAssetPath(assetDir + "/Textures/" + Path.GetFileName(full));
+                // the texture is named after its file, exactly as VNyan names it when it loads it
+                string dst = MSBatch.NamedPath(assetDir + "/Textures", Path.GetFileNameWithoutExtension(full), Path.GetExtension(full));
                 File.Copy(full, dst, true);
                 AssetDatabase.ImportAsset(dst);
                 var imp = AssetImporter.GetAtPath(dst) as TextureImporter;
@@ -176,6 +180,13 @@ namespace MaterialStudio.EditorTools
                     imp.textureType = normal ? TextureImporterType.NormalMap : TextureImporterType.Default;
                     imp.sRGBTexture = !te.linear && !normal;
                     imp.maxTextureSize = 8192;
+                    // same settings Material Studio uses when it loads this file in VNyan: native
+                    // size, mipmaps, bilinear, aniso 4, repeat
+                    imp.npotScale = TextureImporterNPOTScale.None;
+                    imp.mipmapEnabled = true;
+                    imp.filterMode = FilterMode.Bilinear;
+                    imp.anisoLevel = 4;
+                    imp.wrapMode = TextureWrapMode.Repeat;
                     imp.SaveAndReimport();
                 }
                 t = AssetDatabase.LoadAssetAtPath<Texture2D>(dst);

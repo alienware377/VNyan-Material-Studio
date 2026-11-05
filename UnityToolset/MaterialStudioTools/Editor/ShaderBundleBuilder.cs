@@ -11,7 +11,7 @@ namespace MaterialStudio.EditorTools
     /// Lists the project's shaders and compiles the requested ones into an AssetBundle the
     /// VNyan plugin loads at runtime. shader_feature variants are only compiled when a
     /// material in the bundle uses them, so the bundle carries one small material per
-    /// keyword combination the user's materials need (picked by the shader's own property
+    /// keyword combination the avatar's materials need (picked by the shader's own property
     /// drawers, exactly as the material inspector would).
     /// </summary>
     public static class ShaderBundleBuilder

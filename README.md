@@ -45,7 +45,8 @@ VNyan and VSeeFace both load it.
   you turn it on.
 - **Its own `.vsfavatar` exporter.** Your edits are baked in, plus the bone weights exactly as
   VNyan shows them, so weights painted with Weight Studio (more than 4 per vertex included)
-  come along. It does not need any other plugin.
+  come along. The new file is opened again and checked against the original before it
+  replaces anything. It does not need any other plugin.
 - **Progress banner** under the window for every background job: what is running, for which
   materials, how long it has taken, and the result.
 
@@ -64,7 +65,7 @@ VNyan and VSeeFace both load it.
 
 ## Install
 
-1. Download **`VNyan-Material-Studio-v1.0.0.zip`** from
+1. Download **`VNyan-Material-Studio-v1.0.1.zip`** from
    [Releases](https://github.com/alienware377/VNyan-Material-Studio/releases) and unzip it.
 2. Close VNyan.
 3. Run **`install.bat`**. It looks for your VNyan folder by itself (a running VNyan, VNyan's own
@@ -87,7 +88,7 @@ materials; click a material (or use **Pick on model**) and edit it on the tabs:
 | **Properties** | Every property of the picked material, grouped like the shader's own inspector, with per-section on/off ticks and Copy/Paste. Locked Poiyomi shows *Unlock for editing*; unlocked Poiyomi shows *Lock & optimise*. |
 | **Shader** | Switch the selected materials to another shader: the avatar's own, ones built from your packages, Unity built-ins, or VRM/MToon. |
 | **Packages** | Pick your VSF SDK project, add shader `.unitypackage`s (or shader folders), tick the shaders you want, press **Build shader bundle**. Unity runs in the background; VNyan stays usable. |
-| **Export** | Build a new `.vsfavatar` with your edits applied, from this avatar's file or from its prefab in its Unity project. Options: include Weight Studio's live weight paint, keep Poiyomi locked where it is locked now, and load the new avatar in VNyan when done. |
+| **Export** | Build a new `.vsfavatar` with your edits applied, from this avatar's file or from its prefab in its Unity project. Options: include Weight Studio's live weight paint, keep Poiyomi locked where it is locked now, include unused assets from the original file (on by default), and load the new avatar in VNyan when done. |
 | **Settings** | Apply saved edits on load, save automatically, compile missing shader features automatically, show hidden properties, Unity editor override, the saved-edits folder, Reset ALL materials, and the message log. |
 
 ### Locked Poiyomi
@@ -98,6 +99,10 @@ marked *animated* change live; the others show a `*`. They still go into the exp
 bundle*, then press **Unlock for editing**. When you are done, **Lock & optimise** locks it
 again. The export keeps each Poiyomi material locked or unlocked exactly as it is in VNyan
 (turn that option off on *Export* to export everything unlocked).
+
+Before locking, the export works out from each material's values which features it uses. If
+a lock would leave one out (it would look flat), nothing is written and the log names the
+material; with that option off it exports unlocked, with every feature.
 
 ### Where your edits are kept
 
@@ -125,9 +130,10 @@ model plus a folder for textures you loaded from files. *Settings > Open folder*
 - A running VNyan cannot compile shaders or build bundles; that is why Unity runs in the
   background for packages, feature compiles, locking and export.
 - Exporting from a `.vsfavatar` file rebuilds the avatar from the file. Animator controllers
-  (VSF custom animations) cannot be rebuilt from a bundle and are left out with a note;
-  export from the avatar's prefab in its Unity project to keep them. Components whose scripts
-  are not in the private project are removed with a note; add those folders to the project.
+  (VSF custom animations), audio clips, fonts and 3D or array textures cannot be rebuilt from
+  a bundle and are left out with a warning; export from the avatar's prefab in its Unity
+  project to keep them. If some components use scripts that are not in the private project,
+  the export stops and says which; add those folders to the project.
 - Textures inside a `.vsfavatar` can only be read back from the GPU, so they come out at the
   quality the avatar shipped with: any detail lost to its texture compression stays lost.
 - Live weights are matched by vertex count and bone names; a mesh whose shape changed is left

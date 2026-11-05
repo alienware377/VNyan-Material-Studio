@@ -37,6 +37,7 @@ namespace MaterialStudio
         public string exportPrefab = "";
         public bool relockPoiyomi = true;
         public bool applyLiveWeights = true;
+        public bool includeUnusedAssets = true;  // export: pack everything the original file had, used or not
         public bool loadAfterExport;
         public List<NamedString> avatarPaths = new List<NamedString>();   // avatar file name to its last known full path
         public bool autoBuildVariants = true;   // compile missing shader feature combinations in the background
@@ -45,14 +46,14 @@ namespace MaterialStudio
 
     /// <summary>
     /// Material Studio: live material and shader editing for the avatar loaded in VNyan,
-    /// for any shader (Poiyomi, lilToon, MToon, Unity built-ins, and shaders the user adds
+    /// for any shader (Poiyomi, lilToon, MToon, Unity built-ins, and shaders added
     /// from .unitypackages), plus its own .vsfavatar exporter that bakes the edits in.
     /// </summary>
     public partial class MaterialStudioPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
         public const string LOG = "[MaterialStudio] ";
-        public const string VERSION = "v1.0.0";
-        // GitHub repo the update check reads (no releases yet: the check stays quiet until there are)
+        public const string VERSION = "v1.0.1";
+        // GitHub repo the update check reads
         public const string REPO = "alienware377/VNyan-Material-Studio";
         const string BUTTON = "Material Studio";
 
@@ -83,7 +84,7 @@ namespace MaterialStudio
         readonly List<MatEntry> selection = new List<MatEntry>();
         MatEntry Primary { get { return selection.Count > 0 ? selection[0] : null; } }
 
-        // textures the user loaded from files, and where they live in the recipe folder
+        // textures loaded from files, and where they live in the recipe folder
         readonly Dictionary<Texture, string> texSources = new Dictionary<Texture, string>();
         readonly Dictionary<string, Texture2D> fileTexCache = new Dictionary<string, Texture2D>();
         MatSnapshot clipboard;
@@ -365,7 +366,10 @@ namespace MaterialStudio
                     MatEntry entry = reg.EntryFor(m);
                     // start from the original so applying twice never stacks
                     if (entry != null && entry.orig != null) entry.orig.Restore(m);
-                    RecipeEngine.Apply(m, e, ResolveShader, delegate (TexEdit te) { return ResolveTexture(te, avatarTex); }, applyNotes);
+                    // true: a lock with no usable keyword list stayed on its full shader
+                    if (RecipeEngine.Apply(m, e, ResolveShader, delegate (TexEdit te) { return ResolveTexture(te, avatarTex); }, applyNotes) && m.shader != null)
+                        KeywordRules.RebuildKeywords(m, ShaderLayout.For(m.shader));
+                    HealLockTags(m);
                     if (entry != null) entry.unlockedPoiyomi = e.unlockedPoiyomi;
                     n++;
                 }
@@ -484,6 +488,7 @@ namespace MaterialStudio
                 }
                 string[] showing = null, wanted;
                 if (pendingKw.TryGetValue(e.mat, out wanted)) { showing = e.mat.shaderKeywords; e.mat.shaderKeywords = wanted; }
+                HealLockTags(e.mat);
                 MatEdit me = RecipeEngine.Diff(e.orig, e.mat, TexSourceOf);
                 if (showing != null) e.mat.shaderKeywords = showing;
                 if (me == null && !e.unique) continue;
@@ -725,10 +730,11 @@ namespace MaterialStudio
             ShaderLayout L = ShaderLayout.For(s);
             foreach (Material m in mats)
             {
-                int q = m.renderQueue;
-                bool customQueue = q != m.shader.renderQueue;
-                m.shader = s;
-                if (customQueue) m.renderQueue = q;
+                // a custom queue and the material's own tags (MToon's RenderType) stay; a queue
+                // that only followed the old shader follows the new one
+                bool customQueue = m.shader == null || m.renderQueue != m.shader.renderQueue;
+                RecipeEngine.SwapShaderKeepTags(m, s);
+                if (!customQueue) m.renderQueue = -1;
                 KeywordRules.RebuildKeywords(m, L);
             }
             MarkDirty();
@@ -751,9 +757,12 @@ namespace MaterialStudio
                 string orig = RecipeEngine.PoiyomiOriginalShader(e.mat);
                 Shader full = catalog.Find(orig);
                 if (full == null || full.name.StartsWith("Hidden/", StringComparison.Ordinal)) { missing++; continue; }
-                int q = e.mat.renderQueue;
-                e.mat.shader = full;
-                e.mat.renderQueue = q;
+                // like Poiyomi's own unlock: keep RenderType, queue and tags, then the keywords the
+                // lock was compiled with (when the tag can be trusted), then rebuild from values
+                HealLockTags(e.mat);
+                string okw = e.mat.GetTag("OriginalKeywords", false, "");
+                RecipeEngine.SwapShaderKeepTags(e.mat, full);
+                if (RecipeEngine.HealthyOriginalKeywords(okw, full)) e.mat.shaderKeywords = RecipeEngine.SplitKeywords(okw);
                 if (e.mat.HasProperty("_ShaderOptimizerEnabled")) e.mat.SetFloat("_ShaderOptimizerEnabled", 0f);
                 KeywordRules.RebuildKeywords(e.mat, ShaderLayout.For(full));
                 e.unlockedPoiyomi = true;
@@ -948,7 +957,7 @@ namespace MaterialStudio
                     }
                     else if (snap != null) snap.Restore(m);
                     string texDir = Path.Combine(RecipeDir, key);
-                    RecipeEngine.Apply(m, e,
+                    bool rebuild = RecipeEngine.Apply(m, e,
                         delegate (string sn) { return cat != null ? cat.Find(sn) : Shader.Find(sn); },
                         delegate (TexEdit te)
                         {
@@ -957,6 +966,7 @@ namespace MaterialStudio
                                 return Instance.LoadFileTexture(Path.Combine(texDir, te.src.Substring(5)), te.linear, te.src);
                             return null;
                         }, null);
+                    if (rebuild && m.shader != null) KeywordRules.RebuildKeywords(m, ShaderLayout.For(m.shader));
                     n++;
                 }
                 return n;

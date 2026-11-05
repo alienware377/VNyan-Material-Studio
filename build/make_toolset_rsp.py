@@ -9,7 +9,7 @@ U = r"C:\Program Files\Unity\Hub\Editor\2019.4.31f1\Editor\Data"
 
 lines = [
     "-target:library", "-nologo", "-nostdlib+", "-langversion:7.3", "-nowarn:0649,0414,0618",
-    r"-out:C:\MaterialStudioBuild\ToolsetCheck.dll",
+    r"-out:C:\dev\MaterialStudioBuild\ToolsetCheck.dll",
 ]
 for r in [r"MonoBleedingEdge\lib\mono\4.7.1-api\mscorlib.dll",
           r"MonoBleedingEdge\lib\mono\4.7.1-api\System.dll",

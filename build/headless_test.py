@@ -9,11 +9,13 @@ recipe (one colour change) and read the result back.
   python build/headless_test.py export    export the test avatar with a test recipe
   python build/headless_test.py verify    load the exported bundle back and check the colour
   python build/headless_test.py lock      lock one Poiyomi material into a bundle
+  python build/headless_test.py export_real   replay an export job the plugin wrote (see MS_REAL_JOB)
 
 Machine-specific inputs come from environment variables:
   MS_SEED_PROJECT   your VSF SDK Unity project (seed copies its ProjectSettings, Packages and SDK folders)
   MS_TEST_AVATAR    a .vsfavatar to test with (seed copies it into the test folder)
-  MS_REAL_JOB       export_real only: an export job folder the plugin wrote (job.json + live.vbx)
+  MS_REAL_JOB       export_real only: an export job folder the plugin wrote (job.json + live.vbx);
+                    add --weights to apply its live weights, --no-unused to leave out unused assets
   MS_UNITY          optional: Unity.exe of 2019.4.31f1 (default: the Unity Hub install path)
 """
 import json
@@ -26,8 +28,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 UNITY = os.environ.get("MS_UNITY", r"C:\Program Files\Unity\Hub\Editor\2019.4.31f1\Editor\Unity.exe")
-WS = r"C:\MaterialStudioBuild\ws_test"
-T = r"C:\MaterialStudioBuild\test"
+WS = r"C:\dev\MaterialStudioBuild\ws_test"
+T = r"C:\dev\MaterialStudioBuild\test"
 AVATAR = os.path.join(T, "test_avatar.vsfavatar")
 FOLDERS = ["VRM", "VRMShaders", "UniGLTF", "VSF SDK", "DynamicBone", "_PoiyomiShaders"]
 
@@ -125,7 +127,7 @@ def export():
         "kind": "export", "sourceKind": "vsfavatar", "sourcePath": AVATAR,
         "recipePath": recipe_path, "recipeDir": recipe_dir, "liveVbxPath": "",
         "outPath": os.path.join(T, "out", "test_avatar_edited.vsfavatar"),
-        "relockPoiyomi": True, "applyLiveWeights": False,
+        "relockPoiyomi": True, "applyLiveWeights": False, "includeUnusedAssets": True,
     }
     run_job(job, "export")
 
@@ -141,6 +143,7 @@ def export_real():
         "recipePath": src["recipePath"], "recipeDir": src["recipeDir"], "liveVbxPath": live,
         "outPath": os.path.join(T, "out", "test_avatar_real.vsfavatar"),
         "relockPoiyomi": True, "applyLiveWeights": "--weights" in sys.argv,
+        "includeUnusedAssets": "--no-unused" not in sys.argv,
     }
     run_job(job, "export_real")
 
@@ -151,8 +154,11 @@ def verify():
 
 
 def lock():
+    # the keywords these values switch on: the lock refuses a list that misses one (it would lock flat)
+    kw = ["POI_LIGHT_DATA_ADDITIVE_DIRECTIONAL_ENABLE", "POI_LIGHT_DATA_ADDITIVE_ENABLE", "POI_VERTEXLIGHT_ON",
+          "VIGNETTE_MASKED", "_LIGHTINGMODE_FLAT", "_RIMSTYLE_POIYOMI"]
     req = {"id": "j Body|0", "shader": ".poiyomi/Poiyomi 8.0/Poiyomi Toon", "renderQueue": 2000,
-           "keywords": [], "floats": [{"n": "_Cutoff", "v": 0.5}],
+           "keywords": kw, "floats": [{"n": "_Cutoff", "v": 0.5}],
            "colors": [{"n": "_Color", "v": {"r": 1.0, "g": 0.4, "b": 0.4, "a": 1.0}}], "vectors": [],
            "textures": [{"n": "_MainTex", "src": "has", "stSet": True, "scale": {"x": 1, "y": 1}, "offset": {"x": 0, "y": 0}}],
            "tags": [{"n": "_ColorAnimated", "v": "1"}]}

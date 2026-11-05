@@ -18,6 +18,7 @@ namespace MaterialStudio
         public string[] keywords = new string[0];
         public string renderType = "";
         public string originalShaderTag = "";   // Poiyomi lock: the shader it was locked from
+        public string originalKeywordsTag = ""; // Poiyomi lock: the keywords it was compiled with
         public readonly Dictionary<string, float> floats = new Dictionary<string, float>();
         public readonly Dictionary<string, Color> colors = new Dictionary<string, Color>();
         public readonly Dictionary<string, Vector4> vectors = new Dictionary<string, Vector4>();
@@ -36,6 +37,7 @@ namespace MaterialStudio
             s.keywords = m.shaderKeywords != null ? (string[])m.shaderKeywords.Clone() : new string[0];
             s.renderType = m.GetTag("RenderType", false, "");
             s.originalShaderTag = m.GetTag("OriginalShader", false, "");
+            s.originalKeywordsTag = m.GetTag("OriginalKeywords", false, "");
             Shader sh = m.shader;
             if (sh == null) return s;
             int n = sh.GetPropertyCount();
@@ -97,6 +99,7 @@ namespace MaterialStudio
                 }
             }
             if (m.GetTag("OriginalShader", false, "") != originalShaderTag) m.SetOverrideTag("OriginalShader", originalShaderTag);
+            if (m.GetTag("OriginalKeywords", false, "") != originalKeywordsTag) m.SetOverrideTag("OriginalKeywords", originalKeywordsTag);
             // GetTag falls back to the shader's own tag; writing that back as an override would
             // pin it across a later shader switch, so only override a real difference
             if (m.GetTag("RenderType", false, "") != renderType) m.SetOverrideTag("RenderType", renderType);
@@ -192,6 +195,13 @@ namespace MaterialStudio
             }
             string origTag = cur.GetTag("OriginalShader", false, "");
             if (origTag != orig.originalShaderTag) e.tags.Add(new NamedString("OriginalShader", origTag));
+            // A locked Poiyomi reports no keywords at all; the set its shader was compiled with
+            // lives in this tag, and the exporter needs it to lock the same features in again.
+            string okw = cur.GetTag("OriginalKeywords", false, "");
+            bool lockedNow = IsLockedPoiyomi(cur);
+            if (lockedNow ? okw.Length > 0 && (shaderChanged || okw != orig.originalKeywordsTag)
+                          : orig.originalKeywordsTag.Length > 0 && okw != orig.originalKeywordsTag)
+                e.tags.Add(new NamedString("OriginalKeywords", okw));
             string rt = cur.GetTag("RenderType", false, "");
             if (shaderChanged ? rt.Length > 0 : rt != orig.renderType)
                 e.tags.Add(new NamedString("RenderType", rt));
@@ -265,24 +275,33 @@ namespace MaterialStudio
         /// Applies a recipe entry onto a material. The caller resolves shaders by name and
         /// textures by <see cref="TexEdit.src"/>; either resolver may return null, in which
         /// case that part is skipped and reported through <paramref name="notes"/>.
+        /// Returns true when the entry came from a locked Poiyomi without usable keywords, so the
+        /// caller should rebuild the keywords from the values.
         /// </summary>
-        public static void Apply(Material m, MatEdit e, Func<string, Shader> shaderResolver,
+        public static bool Apply(Material m, MatEdit e, Func<string, Shader> shaderResolver,
                                  Func<TexEdit, Texture> texResolver, List<string> notes)
         {
-            if (m == null || e == null) return;
+            if (m == null || e == null) return false;
+            bool lockedCapture = false;
             if (!string.IsNullOrEmpty(e.shader) && (m.shader == null || m.shader.name != e.shader))
             {
                 Shader s = shaderResolver != null ? shaderResolver(e.shader) : null;
-                if (s != null) m.shader = s;
+                if (s != null) SwapShaderKeepTags(m, s);
                 // a recipe saved on a LOCKED Poiyomi names its generated Hidden/Locked shader; the
                 // editor has the unlocked one already (and locks it again), so nothing is lost
-                else if (e.shader.StartsWith("Hidden/Locked/", StringComparison.Ordinal) && m.HasProperty("_ShaderOptimizerEnabled")) { }
+                else if (e.shader.StartsWith("Hidden/Locked/", StringComparison.Ordinal) && m.HasProperty("_ShaderOptimizerEnabled")) lockedCapture = true;
                 else if (notes != null)
                     notes.Add("Shader '" + e.shader + "' is not available here, kept '" +
                               (m.shader != null ? m.shader.name : "none") + "' on " + m.name + ".");
             }
 
-            for (int i = 0; i < e.floats.Count; i++) SetNumber(m, e.floats[i].n, e.floats[i].v);
+            for (int i = 0; i < e.floats.Count; i++)
+            {
+                // the lock flag belongs to the locked shader: this material stays unlocked until it is locked again
+                if (lockedCapture && e.floats[i].n == "_ShaderOptimizerEnabled") continue;
+                SetNumber(m, e.floats[i].n, e.floats[i].v);
+            }
+            if (lockedCapture) m.SetFloat("_ShaderOptimizerEnabled", 0f);
             for (int i = 0; i < e.colors.Count; i++)
                 if (m.HasProperty(e.colors[i].n)) m.SetColor(e.colors[i].n, e.colors[i].v);
             for (int i = 0; i < e.vectors.Count; i++)
@@ -307,10 +326,129 @@ namespace MaterialStudio
                     m.SetTextureOffset(te.n, te.offset);
                 }
             }
+            string okw = "";
             for (int i = 0; i < e.tags.Count; i++)
-                if (e.tags[i] != null && !string.IsNullOrEmpty(e.tags[i].n)) m.SetOverrideTag(e.tags[i].n, e.tags[i].v ?? "");
-            if (e.keywordsSet) m.shaderKeywords = e.keywords.ToArray();
+            {
+                if (e.tags[i] == null || string.IsNullOrEmpty(e.tags[i].n)) continue;
+                string tn = e.tags[i].n;
+                // the lock tags describe the locked shader; on the unlocked one they would make it
+                // look locked, so only remember the keywords the lock was compiled with
+                if (lockedCapture && (tn == "OriginalShader" || tn == "OriginalShaderGUID" || tn == "OriginalKeywords"))
+                {
+                    if (tn == "OriginalKeywords") okw = e.tags[i].v ?? "";
+                    continue;
+                }
+                m.SetOverrideTag(tn, e.tags[i].v ?? "");
+            }
+            bool rebuild = false;
+            if (lockedCapture)
+            {
+                // a locked material's keyword list is always empty, and an enum-only tag says
+                // nothing, so fall back to the values
+                string[] k = SplitKeywords(okw);
+                if (k.Length > 0 && HealthyOriginalKeywords(okw, m.shader)) m.shaderKeywords = k;
+                else
+                {
+                    rebuild = true;
+                    if (notes != null)
+                        notes.Add(m.name + (k.Length == 0 ? ": locked in VNyan by an older Material Studio" : ": its lock recorded unusable keywords (" + okw + ")") +
+                                  ", keywords rebuilt from values.");
+                }
+            }
+            else if (e.keywordsSet) m.shaderKeywords = e.keywords.ToArray();
             if (e.renderQueue != -2) m.renderQueue = e.renderQueue;
+            return rebuild;
+        }
+
+        /// <summary>"A B  C" -> [A, B, C] (Thry stores keyword lists space separated).</summary>
+        public static string[] SplitKeywords(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return new string[0];
+            return s.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        }
+
+        /// <summary>
+        /// Keywords a shader's KeywordEnum properties produce ("_LIGHTINGMODE_CLOTH"...). Unity
+        /// sets those again by itself whenever a shader is assigned, so a keyword list made of
+        /// nothing else says nothing about which features a lock was compiled with.
+        /// </summary>
+        public static HashSet<string> EnumKeywords(Shader s)
+        {
+            var set = new HashSet<string>();
+            if (s == null) return set;
+            int n = s.GetPropertyCount();
+            for (int i = 0; i < n; i++)
+            {
+                string[] attrs;
+                try { attrs = s.GetPropertyAttributes(i); } catch { continue; }
+                if (attrs == null) continue;
+                foreach (string a in attrs)
+                {
+                    if (a == null || !a.StartsWith("KeywordEnum(", StringComparison.Ordinal) || !a.EndsWith(")", StringComparison.Ordinal)) continue;
+                    string pn = s.GetPropertyName(i);
+                    foreach (string v in a.Substring(12, a.Length - 13).Split(','))
+                    {
+                        string t = v.Trim();
+                        if (t.Length > 0) set.Add((pn + "_" + t).Replace(' ', '_').ToUpperInvariant());
+                    }
+                }
+            }
+            return set;
+        }
+
+        /// <summary>
+        /// True when a Thry "OriginalKeywords" tag can be trusted as the set a lock was compiled
+        /// with: not empty and not only KeywordEnum keywords.
+        /// </summary>
+        public static bool HealthyOriginalKeywords(string okw, Shader full)
+        {
+            string[] k = SplitKeywords(okw);
+            if (k.Length == 0) return false;
+            HashSet<string> en = EnumKeywords(full);
+            foreach (string x in k) if (!en.Contains(x)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Switches the shader like Thry's lock and unlock do, keeping the render queue, the lock
+        /// tags and a real RenderType override (MToon's Transparent) that assigning a shader drops.
+        /// </summary>
+        public static void SwapShaderKeepTags(Material m, Shader s)
+        {
+            if (m == null || s == null) return;
+            var keep = new List<NamedString>();
+            string rt = m.GetTag("RenderType", false, "");
+            if (rt.Length > 0 && rt != ShaderTag(m.shader, "RenderType")) keep.Add(new NamedString("RenderType", rt));
+            foreach (string t in new[] { "OriginalShader", "OriginalShaderGUID", "OriginalKeywords", "thry_rename_suffix" })
+                keep.Add(new NamedString(t, m.GetTag(t, false, "")));
+            if (m.shader != null)
+            {
+                int n = m.shader.GetPropertyCount();
+                for (int i = 0; i < n; i++)
+                {
+                    string at = m.shader.GetPropertyName(i) + "Animated";
+                    keep.Add(new NamedString(at, m.GetTag(at, false, "")));
+                }
+            }
+            int q = m.renderQueue;
+            m.shader = s;
+            foreach (NamedString t in keep)
+                if (m.GetTag(t.n, false, "") != t.v) m.SetOverrideTag(t.n, t.v);
+            m.renderQueue = q;
+        }
+
+        /// <summary>A shader's own tag value (what a material without an override reports).</summary>
+        static string ShaderTag(Shader s, string tag)
+        {
+            if (s == null) return "";
+            Material probe = null;
+            try
+            {
+                probe = new Material(s);
+                return probe.GetTag(tag, false, "");
+            }
+            catch { return ""; }
+            finally { if (probe != null) UnityEngine.Object.DestroyImmediate(probe); }
         }
 
         /// <summary>

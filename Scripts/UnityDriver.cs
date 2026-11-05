@@ -59,7 +59,7 @@ namespace MaterialStudio
             catch { return true; }
         }
 
-        /// <summary>Every installed editor: Unity Hub's folders plus the user's override.</summary>
+        /// <summary>Every installed editor: Unity Hub's folders plus the editor override from Settings.</summary>
         public static List<string> FindEditors(string userOverride)
         {
             var list = new List<string>();
@@ -71,7 +71,7 @@ namespace MaterialStudio
             };
             try
             {
-                // Hub's "install location" setting, when the user moved it
+                // Hub's "install location" setting, when it was moved
                 string sec = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Path.Combine("UnityHub", "secondaryInstallPath.json"));
                 if (File.Exists(sec))
                 {

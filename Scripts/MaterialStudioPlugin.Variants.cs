@@ -25,7 +25,7 @@ namespace MaterialStudio
         readonly Dictionary<Material, string[]> lastGood = new Dictionary<Material, string[]>();
         readonly Dictionary<Material, string[]> pendingKw = new Dictionary<Material, string[]>();
         readonly HashSet<Material> compileFailed = new HashSet<Material>();
-        // what the last compile was asked for per material, and the feature keywords the user flipped
+        // what the last compile was asked for per material, and the feature keywords flipped in the inspector
         readonly Dictionary<Material, string> requestedKey = new Dictionary<Material, string>();
         readonly Dictionary<Material, List<string>> touchedKw = new Dictionary<Material, List<string>>();
         float variantBuildAt = -1f;
@@ -118,9 +118,7 @@ namespace MaterialStudio
                 Shader b = catalog.FindBundleShader(m.shader.name);
                 if (b != null && b != m.shader && VariantKnown(b, wantKw))
                 {
-                    int q = m.renderQueue;
-                    m.shader = b;
-                    m.renderQueue = q;
+                    RecipeEngine.SwapShaderKeepTags(m, b);
                     lastGood[m] = wantKw;
                     pendingKw.Remove(m);
                     swapped++;
@@ -208,7 +206,7 @@ namespace MaterialStudio
 
         /// <summary>
         /// The keyword sets one compile should produce for a material: what it wants now plus
-        /// every on/off mix of the (up to 5 most recent) switches the user has been flipping, so
+        /// every on/off mix of the (up to 5 most recent) switches flipped on it, so
         /// flipping them again is instant. Enum keywords count as one switch each option.
         /// </summary>
         List<KeywordSet> VariantsToCompile(Material m, string[] want)

@@ -9,7 +9,6 @@
 AssetBundles/
 _unitybuild/Packages/packages-lock.json
 _unitybuild/Assets/Plugins/
-_unitybuild/Assets/Editor/RecipeProbe.cs
 *.csproj
 *.sln
 *.pidb

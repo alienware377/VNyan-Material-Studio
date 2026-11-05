@@ -1,6 +1,6 @@
 # Material Studio installer for VNyan
-# - Looks for your VNyan folder (a running VNyan, VNyan's own log, Steam, itch), then lets you
-#   confirm it or open your VNyan folder yourself
+# - Looks for your VNyan folder (a running VNyan, VNyan's own log, Steam, installed apps,
+#   itch), then lets you confirm it or open your VNyan folder yourself
 # - Copies the plugin and its Unity editor scripts (used for shader packages and export)
 # - Only asks for admin rights if your VNyan folder is actually write-protected
 # Usage: double-click install.bat (or: powershell -File install.ps1)

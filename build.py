@@ -6,7 +6,7 @@
   4. stage dist/MaterialStudio/: DLL, .vnobj, UnityToolset/ (editor scripts the plugin copies
      into Unity projects). make_release_zip.py packs that folder with the installer.
 
-Everything is built in C:/MaterialStudioBuild, a plain local folder: synced or cloud folders
+Everything is built in C:/dev/MaterialStudioBuild, a plain local folder: synced or cloud folders
 have served stale files before, and Unity's Library folder does not belong in one.
 
 The tool paths below (CSC, UNITY, MANAGED) and the references in build/build.rsp point at
@@ -22,7 +22,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STAGE = r"C:\MaterialStudioBuild"
+STAGE = r"C:\dev\MaterialStudioBuild"
 UNITY_PROJ = os.path.join(STAGE, "unity")
 CSC = r"C:\Program Files\Unity\Hub\Editor\2019.4.16f1\Editor\Data\Tools\Roslyn\csc.exe"
 UNITY = r"C:\Program Files\Unity\Hub\Editor\2022.3.22f1\Editor\Unity.exe"
@@ -86,9 +86,6 @@ def main():
         for f in os.listdir(os.path.join(HERE, "_unitybuild", "Assets", "Shaders")):
             if f.endswith(".shader"):
                 shutil.copyfile(os.path.join(HERE, "_unitybuild", "Assets", "Shaders", f), os.path.join(shd, f))
-        probe = os.path.join(ed, "RecipeProbe.cs")
-        if os.path.exists(probe):
-            os.remove(probe)
         shutil.copyfile(dll, os.path.join(plug, "MaterialStudio.dll"))
         shutil.copyfile(os.path.join(MANAGED, "VNyanInterface.dll"), os.path.join(plug, "VNyanInterface.dll"))
         assert md5(dll) == md5(os.path.join(plug, "MaterialStudio.dll")), "staged DLL mismatch"
@@ -112,12 +109,6 @@ def main():
     if os.path.exists(tdst):
         shutil.rmtree(tdst)
     shutil.copytree(os.path.join(HERE, "UnityToolset", "MaterialStudioTools"), tdst)
-    # old layouts from earlier builds: flat payload, and installer copies next to it
-    for f in ("MaterialStudio.dll", "MaterialStudio.vnobj", "install.bat", "install.ps1", "README.md"):
-        if os.path.exists(os.path.join(DIST, f)):
-            os.remove(os.path.join(DIST, f))
-    if os.path.exists(os.path.join(DIST, "UnityToolset")):
-        shutil.rmtree(os.path.join(DIST, "UnityToolset"))
     for f in sorted(os.listdir(pay)):
         p = os.path.join(pay, f)
         if os.path.isfile(p):

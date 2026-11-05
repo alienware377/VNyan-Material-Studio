@@ -9,7 +9,7 @@ Layout inside the zip (forward-slash entry names):
 The payload comes from dist/MaterialStudio/ (staged by build.py). The version is read from
 VERSION in Scripts/MaterialStudioPlugin.cs.
 
-  python make_release_zip.py                 writes C:/PluginUpdateBuild/release/VNyan-Material-Studio-<version>.zip
+  python make_release_zip.py                 writes C:/dev/PluginUpdateBuild/release/VNyan-Material-Studio-<version>.zip
   python make_release_zip.py --out <folder>  writes it somewhere else
 """
 import hashlib
@@ -23,7 +23,7 @@ REPO_NAME = "VNyan-Material-Studio"
 PLUGIN = "MaterialStudio"
 PAYLOAD = os.path.join(HERE, "dist", PLUGIN)
 TOP_FILES = ["install.bat", "install.ps1", "README.md", "LICENSE"]
-DEFAULT_OUT = r"C:\PluginUpdateBuild\release"
+DEFAULT_OUT = r"C:\dev\PluginUpdateBuild\release"
 
 
 def md5(p):

@@ -132,10 +132,12 @@ namespace MaterialStudio
             foreach (var kv in targets)
             {
                 Material m = kv.Key, locked = kv.Value;
-                m.shader = locked.shader;
+                RecipeEngine.SwapShaderKeepTags(m, locked.shader);
                 m.renderQueue = locked.renderQueue;
                 m.shaderKeywords = locked.shaderKeywords;
-                foreach (string tag in new[] { "OriginalShader", "OriginalShaderGUID", "RenderType" })
+                // OriginalKeywords is the keyword set the locked shader was compiled with (the locked
+                // material itself has none); the recipe and the exporter need it to lock it again
+                foreach (string tag in new[] { "OriginalShader", "OriginalShaderGUID", "OriginalKeywords", "RenderType" })
                 {
                     string v = locked.GetTag(tag, false, "");
                     if (v.Length > 0) m.SetOverrideTag(tag, v);
@@ -149,6 +151,21 @@ namespace MaterialStudio
             SetStatus("Locked and optimised " + targets.Count + " Poiyomi material(s)." +
                       (changedMeanwhile > 0 ? " " + changedMeanwhile + " were edited while locking; lock them again to include those edits." : ""));
             RefreshAll();
+        }
+
+        /// <summary>
+        /// Gives a locked Poiyomi material the OriginalKeywords tag its shader was compiled with,
+        /// when that shader comes from one of the lock bundles. A recipe may carry no tag, an
+        /// enum-only one, or the tag of the lock the avatar shipped with.
+        /// </summary>
+        void HealLockTags(Material m)
+        {
+            if (m == null || !RecipeEngine.IsLockedPoiyomi(m)) return;
+            string okw = catalog.LockedOriginalKeywords(m.shader);
+            if (okw.Length == 0 || okw == m.GetTag("OriginalKeywords", false, "")) return;
+            Shader full = catalog.Find(RecipeEngine.PoiyomiOriginalShader(m));
+            if (full != null && full.name.StartsWith("Hidden/", StringComparison.Ordinal)) full = null;
+            if (RecipeEngine.HealthyOriginalKeywords(okw, full)) m.SetOverrideTag("OriginalKeywords", okw);
         }
 
         /// <summary>Marks a property to stay live (uniform) after locking, like Poiyomi's right-click "Animated".</summary>

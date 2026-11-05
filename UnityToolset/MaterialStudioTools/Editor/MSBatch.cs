@@ -112,7 +112,31 @@ namespace MaterialStudio.EditorTools
             return p;
         }
 
-        static bool FileSafe(string n)
+        public const string NameHolderFile = "_MaterialStudioNames.asset";
+        const string NameHolderMain = "_MaterialStudioNames";
+
+        /// <summary>The 1x1 placeholder a holder file has as its main asset.</summary>
+        public static bool IsNameHolder(UnityEngine.Object o) { return o is Texture2D && o.name == NameHolderMain; }
+
+        /// <summary>
+        /// Saves a new asset so the object keeps its exact name. Unity names a main asset after
+        /// its file, so a name that cannot be a file name (a ':' or '/', a trailing dot, too long)
+        /// goes in as a sub-asset of a holder file in that folder instead, where the name is free.
+        /// Returns false when the holder was used.
+        /// </summary>
+        public static bool CreateNamed(UnityEngine.Object obj, string folder, string ext)
+        {
+            if (FileSafe(obj.name)) { AssetDatabase.CreateAsset(obj, NamedPath(folder, obj.name, ext)); return true; }
+            EnsureFolder(folder);
+            string holder = folder + "/" + NameHolderFile;
+            if (AssetDatabase.LoadMainAssetAtPath(holder) == null)
+                AssetDatabase.CreateAsset(new Texture2D(1, 1, TextureFormat.RGBA32, false) { name = NameHolderMain }, holder);
+            AssetDatabase.AddObjectToAsset(obj, holder);
+            AssetDatabase.ImportAsset(holder);
+            return false;
+        }
+
+        public static bool FileSafe(string n)
         {
             if (string.IsNullOrEmpty(n) || n.Length > 120) return false;
             if (n.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return false;
