@@ -22,6 +22,8 @@ namespace MaterialStudio
         Button bannerClose;
         string jobLabel = "", jobDetail = "", jobDoneText = "";
         float jobStarted = -1f, bannerHideAt = -1f;
+        int bannerSecs = -1;          // the running banner text is rebuilt once a second, not every frame
+        string bannerStep;
         bool wasBusy, bannerShowingResult, bannerAbove;
         readonly Dictionary<Material, string> lastToggleDesc = new Dictionary<Material, string>();
 
@@ -36,6 +38,7 @@ namespace MaterialStudio
             bannerBg = bg;
             bannerEdge = Ui.Box("Edge", bannerRt, 0, 0, 5, BannerH, BannerWork);
             bannerTitle = Ui.Label("Title", bannerRt, "", 16, 6, W - 70, 22, 14, TextAnchor.MiddleLeft, FontStyle.Bold);
+            bannerSecs = -1;
             bannerDetail = Ui.Label("Detail", bannerRt, "", 16, 27, W - 70, 18, 11, TextAnchor.MiddleLeft);
             bannerDetail.color = new Color(0.80f, 0.83f, 0.88f, 1f);
             Image track = Ui.Box("Track", bannerRt, 16, 49, W - 32, 5, new Color(0.18f, 0.19f, 0.23f, 1f));
@@ -67,6 +70,7 @@ namespace MaterialStudio
             jobLabel = label ?? "";
             jobDetail = detail ?? "";
             jobDoneText = doneText ?? "";
+            bannerSecs = -1;
         }
 
         /// <summary>Remembers the last switch flipped per material ("Matcap 1 on") for the banner text.</summary>
@@ -141,6 +145,7 @@ namespace MaterialStudio
                 bannerBarRt.anchoredPosition = Vector2.zero;
                 bannerClose.gameObject.SetActive(true);
                 jobStarted = -1f;
+                bannerSecs = -1;
                 // a feature compile may already be queued again (edits made while it ran)
                 if (variantBuildAt > 0f) bannerHideAt = now + 1.5f;
             }
@@ -155,11 +160,18 @@ namespace MaterialStudio
                 if (busy)
                 {
                     string step = runner.current != null ? runner.current.title : "Working";
-                    bannerTitle.text = (jobLabel.Length > 0 ? jobLabel : step) + "...   " + (int)(now - jobStarted) + " s";
-                    bannerDetail.text = (jobDetail.Length > 0 ? jobDetail + "   " : "") + "(" + step + ")";
+                    int secs = (int)(now - jobStarted);
+                    if (secs != bannerSecs || !ReferenceEquals(step, bannerStep))
+                    {
+                        bannerTitle.text = (jobLabel.Length > 0 ? jobLabel : step) + "...   " + secs + " s";
+                        bannerDetail.text = (jobDetail.Length > 0 ? jobDetail + "   " : "") + "(" + step + ")";
+                        bannerSecs = secs;
+                        bannerStep = step;
+                    }
                 }
                 else
                 {
+                    bannerSecs = -1;
                     bannerTitle.text = "Getting ready to compile the switched feature...";
                     bannerDetail.text = VariantJobDetail();
                 }

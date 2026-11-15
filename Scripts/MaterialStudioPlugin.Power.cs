@@ -16,13 +16,14 @@ namespace MaterialStudio
 
         bool IsOn { get { return cfg.enabled; } }
         float nextPowerPoll;
+        string powerFilePath;
 
         /// <summary>Test hook: a file "MaterialStudio_power.txt" containing on/off flips the switch (then is deleted).</summary>
         void PowerFileTick()
         {
             if (Time.unscaledTime < nextPowerPoll) return;
             nextPowerPoll = Time.unscaledTime + 2f;
-            string p = System.IO.Path.Combine(Application.persistentDataPath, "MaterialStudio_power.txt");
+            string p = powerFilePath ?? (powerFilePath = System.IO.Path.Combine(Application.persistentDataPath, "MaterialStudio_power.txt"));
             if (!System.IO.File.Exists(p)) return;
             string v = "";
             try { v = System.IO.File.ReadAllText(p).Trim().ToLowerInvariant(); System.IO.File.Delete(p); } catch { }

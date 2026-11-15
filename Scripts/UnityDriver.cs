@@ -341,6 +341,7 @@ namespace MaterialStudio
         readonly Queue<UnityStep> queue = new Queue<UnityStep>();
         public UnityStep current;
         public readonly List<string> log = new List<string>();
+        public int logVersion;       // bumped on every line, since the list stops growing at 200
         public string status = "idle";
         // a file-copy step cancelled half way still runs on its worker thread until it is done
         UnityStep draining;
@@ -366,6 +367,7 @@ namespace MaterialStudio
         {
             log.Add(s);
             if (log.Count > 200) log.RemoveAt(0);
+            logVersion++;
             Debug.Log("[MaterialStudio] " + s);
         }
 

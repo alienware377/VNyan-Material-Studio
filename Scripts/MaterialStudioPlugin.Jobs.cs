@@ -15,6 +15,9 @@ namespace MaterialStudio
         InputField outNameField;
         InputField prefabField;
         float nextLogPaint;
+        Text paintedLog;
+        int paintedLogVersion;
+        string paintedStatus;
         string shaderPickSearch = "";
 
         // ------------------------------------------------------------------ log pane
@@ -24,6 +27,7 @@ namespace MaterialStudio
             if (jobLog == null || (currentTab != 2 && currentTab != 3)) return;
             if (Time.unscaledTime < nextLogPaint) return;
             nextLogPaint = Time.unscaledTime + 0.5f;
+            if (jobLog == paintedLog && runner.logVersion == paintedLogVersion && runner.status == paintedStatus) return;
             PaintLog();
         }
 
@@ -37,6 +41,9 @@ namespace MaterialStudio
             string s = string.Join("\n", lines.ToArray());
             if (s.Length > 12000) s = s.Substring(s.Length - 12000);    // a Text past ~16k chars corrupts other windows' glyphs
             jobLog.text = s;
+            paintedLog = jobLog;
+            paintedLogVersion = runner.logVersion;
+            paintedStatus = runner.status;
         }
 
         RectTransform TabScroll(RectTransform P, float logH, out float contentW)
