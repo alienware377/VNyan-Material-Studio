@@ -58,7 +58,7 @@ namespace MaterialStudio
     public partial class MaterialStudioPlugin : MonoBehaviour, VNyanInterface.IButtonClickedHandler
     {
         public const string LOG = "[MaterialStudio] ";
-        public const string VERSION = "v1.1.0";
+        public const string VERSION = "v1.1.1";
         // GitHub repo the update check reads
         public const string REPO = "alienware377/VNyan-Material-Studio";
         const string BUTTON = "Material Studio";

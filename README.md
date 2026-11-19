@@ -79,7 +79,7 @@ VNyan and VSeeFace both load it. Warudo character mods (`.warudo`) can be export
 
 ## Install
 
-1. Download **`VNyan-Material-Studio-v1.1.0.zip`** from
+1. Download **`VNyan-Material-Studio-v1.1.1.zip`** from
    [Releases](https://github.com/alienware377/VNyan-Material-Studio/releases) and unzip it.
 2. Close VNyan.
 3. Run **`install.bat`**. It looks for your VNyan folder by itself (a running VNyan, VNyan's own
